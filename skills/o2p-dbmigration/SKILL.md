@@ -31,6 +31,7 @@ Use this skill whenever you verify code artifacts that migrated from Oracle, bui
 	- `oracle-to-postgres-type-coercion.md`: Verify comparison literals and parameters align with PostgreSQL's stricter types (cast or use string literals when comparing to VARCHAR columns) and add tests that exercise clauses with previously implicit conversions.
 	- `postgres-refcursor-handling.md`: Ensure every refcursor consumer unwraps the cursor before reading rows (execute → fetch) and that helper utilities or integration tests follow the pattern.
 	- `postgres-concurrent-transactions.md`: Verify that no code path executes a second command while a DataReader is still open on the same connection; materialize results with `.ToList()` or use separate connections, and test iterative data access patterns that trigger concurrent operations.
+	- `oracle-to-postgres-timestamp-timezone.md`: Verify that `CURRENT_TIMESTAMP` / `NOW()` usage is timezone-safe: confirm `Npgsql.EnableLegacyTimestampBehavior` is disabled, all write paths use `DateTime.UtcNow`, the connection opens with `TimeZone=UTC`, and integration tests assert `DateTime.Kind == Utc` on retrieved timestamps.
 3. **Build integration tests.** Create or update integration test cases that exercise both the happy path and the failure scenarios highlighted in the insights, including exceptions, sorting validation, and refcursor consumption.
 4. **Document the verification.** Record the references covered, tests added, and any decisions about preserving Oracle behavior (e.g., null handling or type coercion) so downstream agents or reviewers can trace the coverage.
 5. **Gate the workflow.** Return a checklist asserting each insight was addressed, all migration scripts run, and integration tests execute successfully before closing the skill run.
@@ -40,7 +41,7 @@ The `references/` folder also contains `closed-loop-testing-workflow.md`, which 
 ## Verification Checklist
 
 - [ ] Migration artifact review documented with affected components.
-- [ ] Each `references/*.md` insight acknowledged and steps taken (empty string handling, no-data exceptions, parentheses in FROM clauses, sorting, TO_CHAR numeric conversions, type coercion, refcursor handling, concurrent transaction handling).
+- [ ] Each `references/*.md` insight acknowledged and steps taken (empty string handling, no-data exceptions, parentheses in FROM clauses, sorting, TO_CHAR numeric conversions, type coercion, refcursor handling, concurrent transaction handling, timestamp/timezone handling).
 - [ ] Integration tests cover the behaviors mentioned in the insights and explicitly assert the new PostgreSQL semantics.
 - [ ] Test suite runs cleanly and returns deterministic results for the covered cases.
 - [ ] Notes or comments recorded in the PR or workflow log describing how each insight influenced the fix.

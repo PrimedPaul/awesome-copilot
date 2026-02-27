@@ -45,6 +45,7 @@ PATTERN MATCHING TABLE:
 | Type mismatch / comparison error | Implicit coercion difference | `oracle-to-postgres-type-coercion.md` |
 | Cursor/result set empty or wrong | Refcursor handling difference | `postgres-refcursor-handling.md` |
 | "operation already in progress" or concurrent command error | Single active command per connection | `postgres-concurrent-transactions.md` |
+| `DateTime.Kind=Unspecified` or off-by-N-hours timestamp mismatch | CURRENT_TIMESTAMP/NOW() UTC vs session-timezone difference; Npgsql legacy timestamp mode | `oracle-to-postgres-timestamp-timezone.md` |
 
 For each failed test, tag the probable root cause category.
 
@@ -52,7 +53,7 @@ For each failed test, tag the probable root cause category.
 Review the `o2p-dbmigration` skill checklist (from `SKILL.md`):
 
 - [ ] Migration artifact review documented with affected components.
-- [ ] Each `references/*.md` insight acknowledged and steps taken.
+- [ ] Each `references/*.md` insight acknowledged and steps taken (including timestamp/timezone handling).
 - [ ] Integration tests cover the behaviors mentioned in the insights.
 - [ ] Test suite runs cleanly with deterministic results.
 - [ ] Notes recorded describing how each insight influenced the fix.
