@@ -19,13 +19,11 @@ copilot plugin install o2p-dbmigration@awesome-copilot
 | `o2p-dbmigration-create-master-migration-plan` | Discovers all projects in the solution, assesses Oracle migration eligibility, detects prior progress, and produces a persistent master tracking plan. |
 | `o2p-dbmigration-plan-integration-testing` | Creates the integration testing plan for a migrated project. |
 | `o2p-dbmigration-scaffold-test-project` | Scaffolds the xUnit integration test project (base class, transaction management, seed manager). Invoked once before test creation. |
-| `o2p-dbmigration-migrate-application-codebase` | Migrates .NET application code from Oracle to PostgreSQL data access patterns. |
 | `o2p-dbmigration-migrate-stored-procedure` | Converts Oracle stored procedures, functions, and packages to PostgreSQL equivalents. |
 | `o2p-dbmigration-create-integration-tests` | Generates integration tests for a migrated project against the PostgreSQL schema. |
 | `o2p-dbmigration-run-integration-tests` | Executes the integration test suite and captures results. |
 | `o2p-dbmigration-validate-test-results` | Validates test run output and determines whether to exit or loop for remediation. |
 | `o2p-dbmigration-create-bug-reports` | Generates structured bug reports for failed tests and tracks remediation progress. |
-| `o2p-dbmigration-generate-application-migration-report` | Produces a detailed migration outcome report for a completed project. |
 
 ### Skills
 
