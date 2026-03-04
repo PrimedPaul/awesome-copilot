@@ -56,7 +56,7 @@ OPTIONS:
 OUTPUT ARTIFACTS:
 | Artifact | Location |
 |----------|----------|
-| TRX results file | `{REPOSITORY_ROOT}/.github/o2p-dbmigration/Reports/TestResults/{Timestamp}_{Database}_TestResults.trx` |
+| TRX results file | `{REPOSITORY_ROOT}/.github/o2p-dbmigration/Reports/TestResults/{TestProjectName}_{Timestamp}_{Database}_TestResults.trx` |
 | Console summary | Inline in response |
 | Failed test list | Extracted from TRX or console output |
 
