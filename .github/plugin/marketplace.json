@@ -20,7 +20,7 @@
       "name": "azure-cloud-development",
       "source": "azure-cloud-development",
       "description": "Comprehensive Azure cloud development tools including Infrastructure as Code, serverless functions, architecture patterns, and cost optimization for building scalable cloud applications.",
-      "version": "1.0.0"
+      "version": "1.0.1"
     },
     {
       "name": "cast-imaging",
@@ -128,6 +128,12 @@
       "name": "mcp-m365-copilot",
       "source": "mcp-m365-copilot",
       "description": "Comprehensive collection for building declarative agents with Model Context Protocol integration for Microsoft 365 Copilot",
+      "version": "1.0.0"
+    },
+    {
+      "name": "noob-mode",
+      "source": "noob-mode",
+      "description": "Plain-English translation layer for non-technical Copilot CLI users. Translates every approval prompt, error message, and technical output into clear, jargon-free English with color-coded risk indicators.",
       "version": "1.0.0"
     },
     {
@@ -284,6 +290,12 @@
       "name": "typespec-m365-copilot",
       "source": "typespec-m365-copilot",
       "description": "Comprehensive collection of prompts, instructions, and resources for building declarative agents and API plugins using TypeSpec for Microsoft 365 Copilot extensibility.",
+      "version": "1.0.0"
+    },
+    {
+      "name": "winui3-development",
+      "source": "winui3-development",
+      "description": "WinUI 3 and Windows App SDK development agent, instructions, and migration guide. Prevents common UWP API misuse and guides correct WinUI 3 patterns for desktop Windows apps.",
       "version": "1.0.0"
     }
   ]
