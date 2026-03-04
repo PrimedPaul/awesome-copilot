@@ -63,7 +63,7 @@ plan → scaffold → create → run → validate
 After each loop iteration (after `o2p-dbmigration-validate-test-results` returns), write the current loop state to a **per-project** state file:
 `{REPOSITORY_ROOT}/.github/o2p-dbmigration/Reports/.loop-state-{ProjectName}.md`
 
-where `{ProjectName}` is derived from the `TARGET_PROJECT` folder name (e.g., `MIUS.API` → `.loop-state-MIUS.API.md`). This avoids conflicts when multiple projects are tested in sequence and allows each project's loop to be resumed independently.
+where `{ProjectName}` is derived from the `TARGET_PROJECT` folder name. This avoids conflicts when multiple projects are tested in sequence and allows each project's loop to be resumed independently.
 
 This file allows the loop to resume from last-known state if the conversation context is lost or trimmed.
 
