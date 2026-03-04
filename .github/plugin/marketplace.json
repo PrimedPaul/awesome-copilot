@@ -131,6 +131,12 @@
       "version": "1.0.0"
     },
     {
+      "name": "noob-mode",
+      "source": "noob-mode",
+      "description": "Plain-English translation layer for non-technical Copilot CLI users. Translates every approval prompt, error message, and technical output into clear, jargon-free English with color-coded risk indicators.",
+      "version": "1.0.0"
+    },
+    {
       "name": "openapi-to-application-csharp-dotnet",
       "source": "openapi-to-application-csharp-dotnet",
       "description": "Generate production-ready .NET applications from OpenAPI specifications. Includes ASP.NET Core project scaffolding, controller generation, entity framework integration, and C# best practices.",
@@ -284,6 +290,12 @@
       "name": "typespec-m365-copilot",
       "source": "typespec-m365-copilot",
       "description": "Comprehensive collection of prompts, instructions, and resources for building declarative agents and API plugins using TypeSpec for Microsoft 365 Copilot extensibility.",
+      "version": "1.0.0"
+    },
+    {
+      "name": "winui3-development",
+      "source": "winui3-development",
+      "description": "WinUI 3 and Windows App SDK development agent, instructions, and migration guide. Prevents common UWP API misuse and guides correct WinUI 3 patterns for desktop Windows apps.",
       "version": "1.0.0"
     }
   ]
