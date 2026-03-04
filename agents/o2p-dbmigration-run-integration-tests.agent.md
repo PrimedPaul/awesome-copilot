@@ -15,7 +15,6 @@ Execute the xUnit integration test suite to validate application behavior agains
 |---|---|---|
 | `REPOSITORY_ROOT` | Yes | Resolved workspace root path. |
 | `TARGET_PROJECT` | Yes | Absolute path to the single application project whose tests should be executed. |
-| `LOOP_CONTEXT` | No | Provided on iteration 2+. Contains `iteration`, `state_file`, `decision`, `previous_failures`, `current_failures`, `failed_tests` (with `name`, `error_category`, `matched_reference`), `relevant_references`, `bug_reports_created`, and `blocking_issues`. See `closed-loop-testing-workflow.md` for the full structure. |
 
 CONTEXT:
 - Oracle is the **golden source of truth** for expected behavior.
@@ -26,18 +25,14 @@ INSTRUCTIONS:
 
 ## 1. Discover Test Project
 - Locate the xUnit integration test project associated with `TARGET_PROJECT`. Look for a sibling or child project with `IntegrationTests` or `Tests.Integration` in its name that references `TARGET_PROJECT`.
-- **Do not discover or run test projects for other application projects in the solution.** The closed-loop targets one project at a time.
+- **Do not discover or run test projects for other application projects in the solution.** Focus on one project at a time.
 - Prefer projects with `Oracle` or `Postgres` in the folder/namespace to identify target database.
 - If both exist, run Oracle tests first to establish baseline, then Postgres tests.
 
 ## 2. Execute Tests
 Run tests using `dotnet test` with structured output:
 
-### Loop Iteration Behavior
-
-- On **iteration 1** (no `LOOP_CONTEXT` provided): run the full test suite to establish a baseline.
-- On **iteration 2+** (when `LOOP_CONTEXT` is provided): still run the **full test suite** to detect regressions, but prioritize reporting on the `failed_tests` listed in `LOOP_CONTEXT`. If the full suite is prohibitively slow, you may use `--filter` to run only previously-failed tests first for rapid feedback, then follow with a full run to confirm no regressions.
-- Include `LOOP_CONTEXT.iteration` in the result summary so downstream agents know which iteration produced the results.
+Run the **full test suite** to capture all results. If the user provides a `--filter`, apply it; otherwise run everything.
 
 ```powershell
 # Run tests with TRX (Visual Studio Test Results) output
@@ -88,7 +83,7 @@ RESULT SUMMARY FORMAT (provide this after execution):
 ```
 
 ## 5. Handoff to Validation
-After execution, report the summary above. The router will invoke `validateTestResults` to analyze the results and determine next steps (pass → exit, fail → bug reports → fix → re-run).
+After execution, report the summary above. The user can then invoke `o2p-dbmigration-validate-test-results` to analyze the results.
 
 NOTES:
 - Ensure database connection strings are configured in test project settings (`appsettings.json`, environment variables, or user secrets).
