@@ -14,12 +14,12 @@ Create the integration test project structure that will host tests for validatin
 | Key | Required | Description |
 |---|---|---|
 | `REPOSITORY_ROOT` | Yes | Resolved workspace root path. |
-| `TARGET_PROJECT` | Yes | Absolute path to the single application project to scaffold tests for (e.g., `C:/Source/MyApp/MIUS.API.Postgres`). |
+| `TARGET_PROJECT` | Yes | Absolute path to the single application project to scaffold tests for. |
 
 GENERAL INSTRUCTIONS:
 - Keep to the existing .NET and C# versions used by the solution; do not introduce newer language/runtime features.
 - Treat Oracle as the golden behavior source.
-- Only scaffold infrastructure for Oracle initially. Once complete, user will copy the project for Postgres and modify connection strings.
+- Only scaffold infrastructure for Oracle initially. Once complete, user will migrate the test project's application codebase to Postgres.
 
 PROJECT SCAFFOLDING:
 - Create an xUnit test project targeting the same .NET version as the application under test.
@@ -42,4 +42,4 @@ SEED DATA MANAGEMENT:
 
 OUTPUT:
 - A compilable, empty test project with the above infrastructure in place.
-- No test cases — those are created by the `createIntegrationTests` subagent in the next step.
+- No test cases — those are created by the `o2p-dbmigration-create-integration-tests` subagent in the next step.
