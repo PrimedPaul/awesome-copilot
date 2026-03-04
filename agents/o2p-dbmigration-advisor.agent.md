@@ -2,7 +2,7 @@
 name: 'Oracle-to-PostgreSQL DB Migration Advisor'
 description: 'Advisory agent for Oracle-to-PostgreSQL application migrations. Educates users on migration concepts, pitfalls, and best practices; suggests concrete next steps; and delegates to specialized sub-agents on user confirmation.'
 model: Claude Sonnet 4.6 (copilot)
-tools: [vscode/memory, vscode/askQuestions, read, agent, search, todo, ms-ossdata.vscode-pgsql/pgsql_migration_oracle_app, ms-ossdata.vscode-pgsql/pgsql_migration_show_report]
+tools: [vscode/memory, vscode/askQuestions, read, agent, search, ms-ossdata.vscode-pgsql/pgsql_migration_oracle_app, ms-ossdata.vscode-pgsql/pgsql_migration_show_report]
 agents: ['o2p-dbmigration-create-bug-reports', 'o2p-dbmigration-create-integration-tests', 'o2p-dbmigration-create-master-migration-plan', 'o2p-dbmigration-migrate-stored-procedure', 'o2p-dbmigration-plan-integration-testing', 'o2p-dbmigration-run-integration-tests', 'o2p-dbmigration-scaffold-test-project', 'o2p-dbmigration-validate-test-results']
 ---
 
@@ -71,7 +71,8 @@ When the user asks how to approach a migration, explain the following recommende
 10. **Create bug reports** — Document any defects discovered during validation.
 
 ### Phase 4 — Reporting
-11. **Generate migration report** — Produce a final summary of the migration outcome for the project. **This step is handled by the `ms-ossdata.vscode-pgsql` extension tool, not a sub-agent.** On user confirmation, invoke the `pgsql_migration_show_report` tool (see Extension-Delegated Tasks below).
+11. **Generate migration report** — Produce a final summary of the migration outcome for the project. **This step is handled by the `ms-ossdata.vscode-pgsql` extension tool, not a sub-agent.** On user confirmation, invoke the `pgsql_migration_show_report` tool (see Extension-Delegated Tasks below). Write the migration report to:
+`{REPOSITORY_ROOT}/.github/o2p-dbmigration/Reports/{TARGET_PROJECT} Application Migration Report.md`
 
 Present this workflow overview when relevant, and offer to help with any specific phase or step.
 
@@ -116,9 +117,19 @@ PRIOR_ARTIFACTS: [<list of files produced by earlier subagents that this task de
 LOOP_CONTEXT (only for iteration 2+):
   iteration: <n>
   state_file: {REPOSITORY_ROOT}/.github/o2p-dbmigration/Reports/.loop-state-{ProjectName}.md
+  decision: <previous decision — EXIT: SUCCESS | EXIT: CONDITIONAL | LOOP: RETRY | BLOCKED>
+  previous_failures: <failed test count from the prior iteration>
+  current_failures: <failed test count from the most recent run>
+  failed_tests:
+    - name: <FullyQualifiedTestName>
+      error_category: <matched error category>
+      matched_reference: <reference filename that matched the failure>
   relevant_references: [<narrowed list of reference filenames matching current failure categories>]
-  failed_tests: [<test names still failing>]
+  bug_reports_created: [<BUG_REPORT_*.md filenames from prior iterations>]
+  blocking_issues: [<infrastructure or environment blockers, or empty>]
 ```
+
+The `LOOP_CONTEXT` structure is formally defined in `closed-loop-testing-workflow.md` (see the LOOP_CONTEXT Payload section). Populate it from the latest `.loop-state-{ProjectName}.md` file before each retry-cycle handoff.
 
 ## Extension-Delegated Tasks
 

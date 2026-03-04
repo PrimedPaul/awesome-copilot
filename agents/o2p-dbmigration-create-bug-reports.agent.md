@@ -14,7 +14,16 @@ Generate a concise, easy-to-understand bug report for the defect discovered whil
 | Key | Required | Description |
 |---|---|---|
 | `REPOSITORY_ROOT` | Yes | Resolved workspace root path. |
-| `TARGET_PROJECT` | Yes | Absolute path to the single application project whose failures are being reported (e.g., `C:/Source/MyApp/MIUS.API.Postgres`). |
+| `TARGET_PROJECT` | Yes | Absolute path to the single application project whose failures are being reported. |
+| `LOOP_CONTEXT` | No | Provided on iteration 2+. Contains `iteration`, `state_file`, `decision`, `previous_failures`, `current_failures`, `failed_tests` (with `name`, `error_category`, `matched_reference`), `relevant_references`, `bug_reports_created`, and `blocking_issues`. See `closed-loop-testing-workflow.md` for the full structure. |
+
+LOOP ITERATION BEHAVIOR:
+- On **first invocation** (no `LOOP_CONTEXT`): create bug reports for all failures identified by `o2p-dbmigration-validate-test-results`.
+- On **iteration 2+** (when `LOOP_CONTEXT` is provided):
+  - Cross-reference `bug_reports_created` from `LOOP_CONTEXT` against current failures to avoid creating duplicate bug reports for issues already documented.
+  - Update existing bug reports if the failure persists but the error details have changed (update the Status to `⏳ IN PROGRESS` and append new findings).
+  - Create new bug reports only for failures that were not present in prior iterations.
+  - Use `relevant_references` from `LOOP_CONTEXT` to scope root cause analysis to the specific Oracle→Postgres patterns observed.
 
 INSTRUCTIONS:
 - Treat Oracle as the source of truth; capture expected Oracle behavior versus observed Postgres behavior.

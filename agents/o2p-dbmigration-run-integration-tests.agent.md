@@ -14,7 +14,8 @@ Execute the xUnit integration test suite to validate application behavior agains
 | Key | Required | Description |
 |---|---|---|
 | `REPOSITORY_ROOT` | Yes | Resolved workspace root path. |
-| `TARGET_PROJECT` | Yes | Absolute path to the single application project whose tests should be executed (e.g., `C:/Source/MyApp/MIUS.API.Postgres`). |
+| `TARGET_PROJECT` | Yes | Absolute path to the single application project whose tests should be executed. |
+| `LOOP_CONTEXT` | No | Provided on iteration 2+. Contains `iteration`, `state_file`, `decision`, `previous_failures`, `current_failures`, `failed_tests` (with `name`, `error_category`, `matched_reference`), `relevant_references`, `bug_reports_created`, and `blocking_issues`. See `closed-loop-testing-workflow.md` for the full structure. |
 
 CONTEXT:
 - Oracle is the **golden source of truth** for expected behavior.
@@ -31,6 +32,12 @@ INSTRUCTIONS:
 
 ## 2. Execute Tests
 Run tests using `dotnet test` with structured output:
+
+### Loop Iteration Behavior
+
+- On **iteration 1** (no `LOOP_CONTEXT` provided): run the full test suite to establish a baseline.
+- On **iteration 2+** (when `LOOP_CONTEXT` is provided): still run the **full test suite** to detect regressions, but prioritize reporting on the `failed_tests` listed in `LOOP_CONTEXT`. If the full suite is prohibitively slow, you may use `--filter` to run only previously-failed tests first for rapid feedback, then follow with a full run to confirm no regressions.
+- Include `LOOP_CONTEXT.iteration` in the result summary so downstream agents know which iteration produced the results.
 
 ```powershell
 # Run tests with TRX (Visual Studio Test Results) output
@@ -86,4 +93,4 @@ After execution, report the summary above. The router will invoke `validateTestR
 NOTES:
 - Ensure database connection strings are configured in test project settings (`appsettings.json`, environment variables, or user secrets).
 - If running in CI, ensure the database is accessible from the build agent.
-- Seed data should already be in place from `createIntegrationTests` phase; do not truncate or modify production data.
+- Seed data should already be in place from `o2p-dbmigration-create-integration-tests` phase; do not truncate or modify production data.
