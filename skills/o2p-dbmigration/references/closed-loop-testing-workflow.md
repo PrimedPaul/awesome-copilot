@@ -57,6 +57,7 @@ plan → scaffold → create → run → validate
 - After each loop iteration, compare failed test count to previous iteration; if unchanged, escalate.
 - Maintain loop state: `iteration: {n}, previous_failures: {count}, current_failures: {count}, blocking_issues: {list}`.
 - After each `o2p-dbmigration-validate-test-results` return, write/overwrite the per-project state file with current data.
+- After writing/updating the state file, construct the `LOOP_CONTEXT` payload (see LOOP_CONTEXT Payload section below) from the state file for use in subsequent handoffs.
 
 ## State Serialization
 
@@ -122,5 +123,39 @@ Reference-to-category mapping:
 | TO_CHAR numeric format error | `oracle-to-postgres-to-char-numeric.md` |
 | Type comparison mismatch | `oracle-to-postgres-type-coercion.md` |
 | Cursor/result set issue | `postgres-refcursor-handling.md` |
+| Concurrent transaction error | `postgres-concurrent-transactions.md` |
+| Timestamp/timezone mismatch | `oracle-to-postgres-timestamp-timezone.md` |
 
 If a **new failure category** appears in a later iteration that was not present before, add its reference back into the narrowed list for subsequent passes.
+
+## LOOP_CONTEXT Payload
+
+On **iteration 2+**, the router must include a `LOOP_CONTEXT` block in the handoff payload for every subagent invoked during the retry cycle (`o2p-dbmigration-create-integration-tests`, `o2p-dbmigration-run-integration-tests`, `o2p-dbmigration-validate-test-results`, `o2p-dbmigration-create-bug-reports`). This block is the bridge between the persisted loop state file and the subagent's working context.
+
+### Structure
+
+```
+LOOP_CONTEXT:
+  iteration: <n>                      # Current loop iteration (2, 3, …)
+  state_file: <path>                  # Absolute path to .loop-state-{ProjectName}.md
+  decision: <previous decision>       # EXIT: SUCCESS | EXIT: CONDITIONAL | LOOP: RETRY | BLOCKED
+  previous_failures: <count>          # Failed test count from the prior iteration
+  current_failures: <count>           # Failed test count from the most recent run
+  failed_tests:                       # Tests still failing (from state file Failed Tests table)
+    - name: <FullyQualifiedTestName>
+      error_category: <category>      # Matched error category
+      matched_reference: <file.md>    # Reference file that matched the failure
+  relevant_references:                # Narrowed list of reference filenames for this iteration
+    - <reference-filename.md>
+  bug_reports_created:                # Bug reports produced in prior iterations
+    - <BUG_REPORT_*.md filename>
+  blocking_issues:                    # Infrastructure or environment blockers
+    - <issue description, or empty>
+```
+
+### Rules
+
+- On **iteration 1** (the first run through `plan → scaffold → create → run → validate`), `LOOP_CONTEXT` is **not** included in the handoff payload.
+- On **iteration 2+**, every subagent in the retry path receives `LOOP_CONTEXT` populated from the latest `.loop-state-{ProjectName}.md` file.
+- The `relevant_references` list is narrowed from the full set based on the error categories observed in the prior iteration (see Reference Narrowing above).
+- Each subagent should document in its own instructions how it uses `LOOP_CONTEXT` fields — see the individual agent files for details.

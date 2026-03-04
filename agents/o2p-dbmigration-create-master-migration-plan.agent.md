@@ -42,7 +42,7 @@ For each non-test project, analyze whether it requires Oracle→PostgreSQL migra
 2. **Classify each project:**
    - **MIGRATE** — Has Oracle database interactions that must be converted.
    - **SKIP** — No Oracle indicators found (e.g., pure UI project, shared utility library with no DB access).
-   - **ALREADY_MIGRATED** — A `.Postgres` duplicate already exists and appears to have been processed.
+   - **ALREADY_MIGRATED** — A `-postgres` or `.Postgres` duplicate already exists and appears to have been processed.
    - **TEST_PROJECT** — Identified as a test project; will be handled by the testing workflow, not direct migration.
 
 3. **Confirm with the user.** Present the classified list and ask the user to confirm, adjust, or add projects before finalizing the plan.
@@ -54,12 +54,12 @@ For each non-test project, analyze whether it requires Oracle→PostgreSQL migra
 Check for existing migration artifacts that indicate work from a previous session:
 
 1. **Per-project loop state files:** Look for `.github/o2p-dbmigration/Reports/.loop-state-{ProjectName}.md` for each MIGRATE-eligible project. If found, read and record the iteration, decision, and test counts.
-2. **Existing `.Postgres` project folders:** Check if a duplicated project already exists alongside a MIGRATE target. If so, note whether it appears to have been fully migrated (tool-generated changes present) or is a partial/empty copy.
+2. **Existing `-postgres` or `.Postgres` project folders:** Check if a duplicated project already exists alongside a MIGRATE target. If so, note whether it appears to have been fully migrated (tool-generated changes present) or is a partial/empty copy.
 3. **Existing reports:** Check for:
    - `Integration Testing Plan.md` — indicates testing was planned.
    - `Validation Report.md` — indicates testing was executed.
    - `BUG_REPORT_*.md` files — indicate issues were documented.
-   - `Application Migration Report.md` — indicates a previous run completed or partially completed.
+   - `* Application Migration Report.md` — indicates a previous run completed or partially completed.
 4. **Existing master plan:** Check if `Master Migration Plan.md` already exists. If it does, read it and compare against current solution state. If the existing plan is still valid (same projects, correct statuses), update it in place rather than overwriting. If the solution has changed (new projects added/removed), regenerate with the user's confirmation.
 
 ---
@@ -142,7 +142,7 @@ To continue this migration in a fresh agent session:
    - If `TESTING` → read the per-project loop state file (`.loop-state-{ProjectName}.md`) and resume the testing loop at the recorded iteration.
    - If `TEST_BLOCKED` → present blocking issues to the user for resolution.
 4. After each project reaches `COMPLETED` or `TEST_PASSED`, update this file's Project Inventory table and move to the next project.
-5. When all MIGRATE projects reach a terminal status, invoke `generateApplicationMigrationReport`.
+5. When all MIGRATE projects reach a terminal status, instruct the user which projects are ready for migration.
 ```
 
 ---
