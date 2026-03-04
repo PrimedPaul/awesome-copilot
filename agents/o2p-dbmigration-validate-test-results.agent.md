@@ -1,13 +1,13 @@
 ---
 name: o2p-dbmigration-validate-test-results
 user-invokable: false
-description: 'Analyze test results, apply o2p-dbmigration skill checklist, and determine pass/fail/retry status for the migration validation workflow.'
+description: 'Analyze test results, apply o2p-dbmigration skill checklist, and produce a validation report for the migration.'
 model: Claude Sonnet 4.6 (copilot)
 tools: [vscode/askQuestions, read, edit, search, todo]
 ---
 # Validate Integration Test Results
 
-Analyze test execution results, cross-reference with the `o2p-dbmigration` skill verification checklist, and produce a validation report that determines whether the workflow should exit successfully or loop back for fixes. This prompt targets a **single project** identified by `TARGET_PROJECT`.
+Analyze test execution results, cross-reference with the `o2p-dbmigration` skill verification checklist, and produce a validation report. This prompt targets a **single project** identified by `TARGET_PROJECT`.
 
 ## Expected Inputs (from router handoff payload)
 
@@ -15,7 +15,6 @@ Analyze test execution results, cross-reference with the `o2p-dbmigration` skill
 |---|---|---|
 | `REPOSITORY_ROOT` | Yes | Resolved workspace root path. |
 | `TARGET_PROJECT` | Yes | Absolute path to the single application project whose test results are being validated. |
-| `LOOP_CONTEXT` | No | Provided on iteration 2+. Contains `iteration`, `state_file`, `decision`, `previous_failures`, `current_failures`, `failed_tests` (with `name`, `error_category`, `matched_reference`), `relevant_references`, `bug_reports_created`, and `blocking_issues`. See `closed-loop-testing-workflow.md` for the full structure. |
 
 CONTEXT:
 - Receives test results from `o2p-dbmigration-run-integration-tests` (TRX file and/or summary) **for `TARGET_PROJECT` only**.
@@ -51,20 +50,6 @@ PATTERN MATCHING TABLE:
 
 For each failed test, tag the probable root cause category.
 
-## 2a. Loop Iteration Behavior
-
-- On **iteration 1** (no `LOOP_CONTEXT` provided): cross-reference all skill references from `{REPOSITORY_ROOT}/.github/skills/o2p-dbmigration/references/` to establish baseline failure categories.
-- On **iteration 2+** (when `LOOP_CONTEXT` is provided): narrow the cross-reference scope to only the `relevant_references` listed in `LOOP_CONTEXT`, unless a **new failure category** appears that was not present in prior iterations — in that case, add its reference back into scope.
-- Compare `current_failures` against `previous_failures` from `LOOP_CONTEXT` to determine whether progress is being made. If the count is unchanged or increasing after 3 iterations, recommend escalation.
-- Cross-reference `bug_reports_created` from `LOOP_CONTEXT` against the current failed tests to determine which prior bug reports are still unresolved.
-
-## 2b. Write/Update Loop State File
-
-After completing validation, write or overwrite the per-project loop state file at:
-`{REPOSITORY_ROOT}/.github/o2p-dbmigration/Reports/.loop-state-{ProjectName}.md`
-
-Use the format defined in `closed-loop-testing-workflow.md` (State Serialization section). This file enables the router to construct the `LOOP_CONTEXT` payload for subsequent iterations and allows the loop to resume if the conversation context is lost.
-
 ## 3. Apply Verification Checklist
 Review the `o2p-dbmigration` skill checklist (from `SKILL.md`):
 
@@ -81,9 +66,9 @@ Based on test results and checklist:
 
 | Condition | Decision | Next Action |
 |-----------|----------|-------------|
-| 100% tests pass + all checklist ✅ | **EXIT: SUCCESS** | Generate final migration report |
-| >90% pass + minor checklist gaps | **EXIT: CONDITIONAL** | Document known issues, generate report |
-| <90% pass OR critical checklist ❌ | **LOOP: RETRY** | Create bug reports → fix → re-run tests |
+| 100% tests pass + all checklist ✅ | **PASS** | Generate final migration report |
+| >90% pass + minor checklist gaps | **PASS WITH CAVEATS** | Document known issues, generate report |
+| <90% pass OR critical checklist ❌ | **NEEDS ATTENTION** | Create bug reports, suggest fixes |
 | Infrastructure failures (no DB connection) | **BLOCKED** | Halt, request environment fix |
 
 ## 5. Output Validation Report
@@ -126,21 +111,16 @@ REPORT TEMPLATE:
 
 ## Workflow Decision
 
-**Status:** {EXIT: SUCCESS | EXIT: CONDITIONAL | LOOP: RETRY | BLOCKED}
+**Status:** {PASS | PASS WITH CAVEATS | NEEDS ATTENTION | BLOCKED}
 **Reason:** {brief explanation}
 
 ### Next Steps
 {Ordered list of actions based on decision}
 ```
 
-## 6. Handoff Instructions
-Return the following to the router:
-- **Decision:** EXIT | LOOP | BLOCKED
+## 6. Summary
+Conclude the report with:
+- **Status:** PASS | PASS WITH CAVEATS | NEEDS ATTENTION | BLOCKED
 - **Failed tests count:** {n}
 - **Bug reports needed:** {yes/no}
-- **Blocking issues:** {list if BLOCKED}
-
-The router will:
-- EXIT → Invoke `generateApplicationMigrationReport`
-- LOOP → Invoke `createBugReports` for failures, then prompt for fixes, then re-invoke `runIntegrationTests`
-- BLOCKED → Halt and request user intervention
+- **Suggested next steps:** based on the status, recommend the user's next action (e.g., create bug reports, re-run tests after fixes, generate migration report, or resolve infrastructure issues).

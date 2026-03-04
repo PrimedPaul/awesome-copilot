@@ -15,7 +15,6 @@ Create integration test cases for the class/method provided by the user. The tes
 |---|---|---|
 | `REPOSITORY_ROOT` | Yes | Resolved workspace root path. |
 | `TARGET_PROJECT` | Yes | Absolute path to the single application project whose code artifacts are under test. |
-| `LOOP_CONTEXT` | No | Provided on iteration 2+. Contains `iteration`, `state_file`, `decision`, `previous_failures`, `current_failures`, `failed_tests` (with `name`, `error_category`, `matched_reference`), `relevant_references`, `bug_reports_created`, and `blocking_issues`. See `closed-loop-testing-workflow.md` for the full structure. |
 
 PREREQUISITES:
 - The test project must already exist and compile. If it does not, stop and report this to the router.
@@ -37,14 +36,6 @@ INSTRUCTIONS FOR TEST CASE CREATION:
 - Avoid redundancy in test assertions across tests that target the same method.
 - Do not use assertions that pass when a value is null or empty, you must assert against specific expected values (eg assert for null xor assert for empty).
 - Plan for a second review of the created tests to ensure assertions against non-null values are deterministic against the seeded data.
-
-LOOP ITERATION BEHAVIOR:
-- On **first invocation** (no `LOOP_CONTEXT`): generate the full set of test cases and seed data based on the integration testing plan.
-- On **iteration 2+** (when `LOOP_CONTEXT` is provided):
-  - Focus only on modifying or adding test cases to address the `failed_tests` listed in `LOOP_CONTEXT`. Do not rewrite passing tests.
-  - Use `relevant_references` from `LOOP_CONTEXT` to understand the specific Oracle→Postgres patterns causing failures and tailor test modifications accordingly (e.g., adjust assertions for empty-string/NULL differences, add collation hints for sorting tests).
-  - Consult any bug reports listed in `bug_reports_created` (from `LOOP_CONTEXT`) and referenced in `PRIOR_ARTIFACTS` to understand root causes and recommended fixes.
-  - If `LOOP_CONTEXT.iteration` is 3 or higher and the same tests are still failing, consider whether the test assertions themselves need revisiting rather than the application code.
 
 INSTRUCTIONS FOR SEED DATA:
 - Follow the seed file location and naming conventions established by the scaffolded project.

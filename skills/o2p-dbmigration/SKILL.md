@@ -36,8 +36,6 @@ Use this skill whenever you verify code artifacts that migrated from Oracle, bui
 4. **Document the verification.** Record the references covered, tests added, and any decisions about preserving Oracle behavior (e.g., null handling or type coercion) so downstream agents or reviewers can trace the coverage.
 5. **Gate the workflow.** Return a checklist asserting each insight was addressed, all migration scripts run, and integration tests execute successfully before closing the skill run.
 
-The `references/` folder also contains `closed-loop-testing-workflow.md`, which defines the flow diagram, decision logic (EXIT/LOOP/BLOCKED), and loop control rules for the integration testing cycle.
-
 ## Verification Checklist
 
 - [ ] Migration artifact review documented with affected components.
