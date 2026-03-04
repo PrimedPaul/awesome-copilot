@@ -49,22 +49,7 @@ For each non-test project, analyze whether it requires Oracle→PostgreSQL migra
 
 ---
 
-## Phase 3 — Detect Prior Progress
-
-Check for existing migration artifacts that indicate work from a previous session:
-
-1. **Per-project loop state files:** Look for `.github/o2p-dbmigration/Reports/.loop-state-{ProjectName}.md` for each MIGRATE-eligible project. If found, read and record the iteration, decision, and test counts.
-2. **Existing `-postgres` or `.Postgres` project folders:** Check if a duplicated project already exists alongside a MIGRATE target. If so, note whether it appears to have been fully migrated (tool-generated changes present) or is a partial/empty copy.
-3. **Existing reports:** Check for:
-   - `Integration Testing Plan.md` — indicates testing was planned.
-   - `Validation Report.md` — indicates testing was executed.
-   - `BUG_REPORT_*.md` files — indicate issues were documented.
-   - `* Application Migration Report.md` — indicates a previous run completed or partially completed.
-4. **Existing master plan:** Check if `Master Migration Plan.md` already exists. If it does, read it and compare against current solution state. If the existing plan is still valid (same projects, correct statuses), update it in place rather than overwriting. If the solution has changed (new projects added/removed), regenerate with the user's confirmation.
-
----
-
-## Phase 4 — Produce the Master Migration Plan
+## Phase 3 — Produce the Master Migration Plan
 
 Write the plan to: `{REPOSITORY_ROOT}/.github/o2p-dbmigration/Reports/Master Migration Plan.md`
 
@@ -77,7 +62,6 @@ Use the format defined below exactly. The router and future sessions depend on t
 **Solution Root:** {REPOSITORY_ROOT}
 **Created:** {timestamp}
 **Last Updated:** {timestamp}
-**Status:** {NOT_STARTED | IN_PROGRESS | COMPLETED}
 
 ## Solution Summary
 
@@ -92,7 +76,7 @@ Use the format defined below exactly. The router and future sessions depend on t
 ## Project Inventory
 
 | # | Project Name | Path | Classification | Notes |
-|---|---|---|---|---|---|
+|---|---|---|---|---|
 | 1 | {name} | {relative path from REPOSITORY_ROOT} | MIGRATE | {any notes} |
 | 2 | {name} | {relative path from REPOSITORY_ROOT} | SKIP | No Oracle dependencies |
 | ... | ... | ... | ... |  ... |

@@ -22,8 +22,8 @@ copilot plugin install o2p-dbmigration@awesome-copilot
 | `o2p-dbmigration-migrate-stored-procedure` | Converts Oracle stored procedures, functions, and packages to PostgreSQL equivalents. |
 | `o2p-dbmigration-create-integration-tests` | Generates integration tests for a migrated project against the PostgreSQL schema. |
 | `o2p-dbmigration-run-integration-tests` | Executes the integration test suite and captures results. |
-| `o2p-dbmigration-validate-test-results` | Validates test run output and determines whether to exit or loop for remediation. |
-| `o2p-dbmigration-create-bug-reports` | Generates structured bug reports for failed tests and tracks remediation progress. |
+| `o2p-dbmigration-validate-test-results` | Analyzes test results against the skill checklist and highlights failures. |
+| `o2p-dbmigration-create-bug-reports` | Generates structured bug reports for failed tests. |
 
 ### Skills
 
@@ -58,10 +58,10 @@ No autonomous chaining — the user controls the pace and sequence.
 
 The advisor can delegate to 8 specialized sub-agents, each handling one focused role:
 
-- **Master Planning**: Discover projects, classify eligibility, track progress
+- **Master Planning**: Discover projects, classify eligibility
 - **Integration Testing**: Plan, scaffold, create test cases, run tests, validate results
 - **Stored Procedure Migration**: Convert Oracle procedures to PostgreSQL
-- **Bug Tracking**: Generate reports for defects discovered during validation
+- **Bug Reporting**: Generate reports for defects discovered during validation
 
 ## Prerequisites
 
@@ -79,11 +79,11 @@ The agent expects and creates the following structure in your solution:
     └── o2p-dbmigration/
         ├── Reports/
         │   ├── Master Migration Plan.md
-    │   ├── Integration Testing Plan.md
-    │   ├── Validation Report.md
-    │   ├── Application Migration Report.md
-    │   ├── BUG_REPORT_*.md
-    │   └── TestResults/
+        │   ├── Integration Testing Plan.md
+        │   ├── Validation Report.md
+        │   ├── Application Migration Report.md
+        │   ├── BUG_REPORT_*.md
+        │   └── TestResults/
         ├── DDL/
         │   ├── Oracle/      # Oracle DDL scripts (pre-migration)
         │   └── Postgres/    # PostgreSQL DDL scripts (post-migration)
@@ -103,7 +103,7 @@ The agent expects and creates the following structure in your solution:
 - **Best Practices Advice**: Emphasizes minimal changes, preserving logic, and schema immutability
 - **User-Paced Workflow**: No automatic sequencing — you control which steps to take and when
 - **Smart Delegation**: Offers to delegate to the right sub-agent with prerequisites verification
-- **Cross-Session Knowledge**: Persistent artifacts (master plan, testing results, bug reports) enable resuming work across sessions
+- **Persistent Artifacts**: Testing plans, validation reports, and bug reports are saved to your repository for reference
 
 ## Source
 

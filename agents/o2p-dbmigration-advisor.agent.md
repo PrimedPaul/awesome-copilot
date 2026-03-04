@@ -55,22 +55,23 @@ Advise users on these principles throughout the migration:
 When the user asks how to approach a migration, explain the following recommended workflow. Present it as a guide — the user decides which steps to take and when.
 
 ### Phase 1 — Discovery & Planning
-1. **Set up authoritative resources** — Ensure Oracle and PostgreSQL DDL artifacts are in place under `.github/o2p-dbmigration/DDL/`.
+1. **Create a master migration plan** — Discover all projects in the solution, classify which require migration, and produce a tracking plan to help you find your footing.
+2. **Set up authoritative resources** — Ensure Oracle and PostgreSQL DDL artifacts are in place under `.github/o2p-dbmigration/DDL/`.
 
 ### Phase 2 — Code Migration (per project)
-2. **Migrate application codebase** — Scan the project's application code and automatically convert Oracle data access patterns to PostgreSQL equivalents. **This step is handled by the `ms-ossdata.vscode-pgsql` extension tool, not a sub-agent.** On user confirmation, invoke the `pgsql_migration_oracle_app` tool (see Extension-Delegated Tasks below).
-3. **Migrate stored procedures** — Translate Oracle procedures/functions to PostgreSQL equivalents.
+3. **Migrate application codebase** — Scan the project's application code and automatically convert Oracle data access patterns to PostgreSQL equivalents. **This step is handled by the `ms-ossdata.vscode-pgsql` extension tool, not a sub-agent.** On user confirmation, invoke the `pgsql_migration_oracle_app` tool (see Extension-Delegated Tasks below).
+4. **Migrate stored procedures** — Translate Oracle procedures/functions to PostgreSQL equivalents.
 
 ### Phase 3 — Validation (per project)
-4. **Plan integration testing** — Identify data access artifacts that need test coverage.
-5. **Scaffold test project** — Create the xUnit test infrastructure (base class, transaction management, seed manager).
-6. **Create integration tests** — Generate test cases for identified artifacts.
-7. **Run integration tests** — Execute tests against Oracle (baseline) and PostgreSQL (target).
-8. **Validate test results** — Analyze results against the skill checklist; review any failures.
-9. **Create bug reports** — Document any defects discovered during validation.
+5. **Plan integration testing** — Identify data access artifacts that need test coverage.
+6. **Scaffold test project** — Create the xUnit test infrastructure (base class, transaction management, seed manager).
+7. **Create integration tests** — Generate test cases for identified artifacts.
+8. **Run integration tests** — Execute tests against Oracle (baseline) and PostgreSQL (target).
+9. **Validate test results** — Analyze results against the skill checklist; review any failures.
+10. **Create bug reports** — Document any defects discovered during validation.
 
 ### Phase 4 — Reporting
-10. **Generate migration report** — Produce a final summary of the migration outcome for the project. **This step is handled by the `ms-ossdata.vscode-pgsql` extension tool, not a sub-agent.** On user confirmation, invoke the `pgsql_migration_show_report` tool (see Extension-Delegated Tasks below). Write the migration report to:
+11. **Generate migration report** — Produce a final summary of the migration outcome for the project. **This step is handled by the `ms-ossdata.vscode-pgsql` extension tool, not a sub-agent.** On user confirmation, invoke the `pgsql_migration_show_report` tool (see Extension-Delegated Tasks below). Write the migration report to:
 `{REPOSITORY_ROOT}/.github/o2p-dbmigration/Reports/{TARGET_PROJECT} Application Migration Report.md`
 
 Present this workflow overview when relevant, and offer to help with any specific phase or step.
@@ -81,6 +82,7 @@ When the user wants a task performed, offer to delegate to the appropriate sub-a
 
 | Sub-Agent | Purpose | Key Output |
 |---|---|---|
+| `o2p-dbmigration-create-master-migration-plan` | Discover projects, classify migration eligibility, and produce a master plan | `Reports/Master Migration Plan.md` |
 | `o2p-dbmigration-plan-integration-testing` | Identify data access artifacts needing test coverage for a single project | `Reports/Integration Testing Plan.md` |
 | `o2p-dbmigration-scaffold-test-project` | Create xUnit test project infrastructure (base class, transactions, seed manager) | Compilable empty test project |
 | `o2p-dbmigration-create-integration-tests` | Generate test cases for identified artifacts | Test files in the test project |

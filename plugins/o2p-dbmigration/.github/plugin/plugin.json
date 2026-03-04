@@ -1,6 +1,6 @@
 {
   "name": "o2p-dbmigration",
-  "description": "Oracle-to-PostgreSQL migration orchestrator for multi-project .NET solutions with comprehensive migration planning, code transformation, integration testing, and reporting capabilities.",
+  "description": "Advisory agent for Oracle-to-PostgreSQL application migrations in .NET solutions. Educates users on migration concepts, pitfalls, and best practices; delegates to specialized sub-agents on user confirmation.",
   "version": "1.0.0",
   "author": {
     "name": "Awesome Copilot Community"
