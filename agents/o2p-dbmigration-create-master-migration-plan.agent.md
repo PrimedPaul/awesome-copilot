@@ -91,23 +91,11 @@ Use the format defined below exactly. The router and future sessions depend on t
 
 ## Project Inventory
 
-| # | Project Name | Path | Classification | Status | Notes |
+| # | Project Name | Path | Classification | Notes |
 |---|---|---|---|---|---|
-| 1 | {name} | {relative path from REPOSITORY_ROOT} | MIGRATE | {see Status Values} | {any notes} |
-| 2 | {name} | {relative path from REPOSITORY_ROOT} | SKIP | N/A | No Oracle dependencies |
-| ... | ... | ... | ... | ... | ... |
-
-### Status Values
-
-For projects classified as **MIGRATE**, the Status column tracks lifecycle progress:
-
-- `PENDING` — Not yet started.
-- `MIGRATING` — `migrateApplicationCodebase` is in progress or was interrupted.
-- `MIGRATED` — Code migration complete; testing not yet started.
-- `TESTING` — Closed-loop testing in progress (see loop state file for details).
-- `TEST_PASSED` — Testing exited with SUCCESS or CONDITIONAL.
-- `TEST_BLOCKED` — Testing is blocked; requires user intervention.
-- `COMPLETED` — Migration and testing both finished.
+| 1 | {name} | {relative path from REPOSITORY_ROOT} | MIGRATE | {any notes} |
+| 2 | {name} | {relative path from REPOSITORY_ROOT} | SKIP | No Oracle dependencies |
+| ... | ... | ... | ... |  ... |
 
 ## Migration Order
 
@@ -117,34 +105,6 @@ Projects should be migrated in the following order (rationale included):
 2. **{ProjectName}** — {rationale}
 3. ...
 
-## Prior Progress Detected
-
-{If no prior progress: "No prior migration artifacts found. This is a fresh migration."}
-
-{If prior progress exists, summarize per project:}
-
-### {ProjectName}
-- **Loop state file:** {exists | not found} {if exists: iteration {n}, decision: {decision}}
-- **`.Postgres` folder:** {exists | not found} {if exists: appears {complete | partial}}
-- **Reports:** {list any existing reports}
-- **Recommended resume point:** {e.g., "Resume from closed-loop testing iteration 2" or "Re-run migrateApplicationCodebase — previous copy appears incomplete"}
-
-## Resume Instructions
-
-To continue this migration in a fresh agent session:
-
-1. Read this file: `{REPOSITORY_ROOT}/.github/o2p-dbmigration/Reports/Master Migration Plan.md`
-2. Check the **Project Inventory** table for the first project with a non-terminal status (`PENDING`, `MIGRATING`, `MIGRATED`, `TESTING`, `TEST_BLOCKED`).
-3. For that project:
-   - If `PENDING` → begin with `migrateApplicationCodebase`.
-   - If `MIGRATING` → check if the `.Postgres` folder exists and is complete; if partial, re-run `migrateApplicationCodebase`.
-   - If `MIGRATED` → begin closed-loop testing (`planIntegrationTesting` → ...).
-   - If `TESTING` → read the per-project loop state file (`.loop-state-{ProjectName}.md`) and resume the testing loop at the recorded iteration.
-   - If `TEST_BLOCKED` → present blocking issues to the user for resolution.
-4. After each project reaches `COMPLETED` or `TEST_PASSED`, update this file's Project Inventory table and move to the next project.
-5. When all MIGRATE projects reach a terminal status, instruct the user which projects are ready for migration.
-```
-
 ---
 
 ## Completion Criteria
@@ -153,10 +113,7 @@ This subagent is complete when:
 - The master migration plan file exists at the specified path.
 - All projects in the solution have been discovered and classified.
 - The user has confirmed the migration target list and ordering.
-- Any prior progress has been detected and recorded in the plan.
-- The plan is ready for the router to begin (or resume) the per-project migration lifecycle.
 
 Return to the router with:
 - The path to the master migration plan file.
 - The confirmed list of projects to migrate (in order).
-- A summary of any prior progress detected.
