@@ -14,10 +14,11 @@ Analyze test execution results, cross-reference with the `o2p-dbmigration` skill
 | Key | Required | Description |
 |---|---|---|
 | `REPOSITORY_ROOT` | Yes | Resolved workspace root path. |
-| `TARGET_PROJECT` | Yes | Absolute path to the single application project whose test results are being validated (e.g., `C:/Source/MyApp/MIUS.API.Postgres`). |
+| `TARGET_PROJECT` | Yes | Absolute path to the single application project whose test results are being validated. |
+| `LOOP_CONTEXT` | No | Provided on iteration 2+. Contains `iteration`, `state_file`, `decision`, `previous_failures`, `current_failures`, `failed_tests` (with `name`, `error_category`, `matched_reference`), `relevant_references`, `bug_reports_created`, and `blocking_issues`. See `closed-loop-testing-workflow.md` for the full structure. |
 
 CONTEXT:
-- Receives test results from `runIntegrationTests` (TRX file and/or summary) **for `TARGET_PROJECT` only**.
+- Receives test results from `o2p-dbmigration-run-integration-tests` (TRX file and/or summary) **for `TARGET_PROJECT` only**.
 - Must validate both **test pass rate** and **skill checklist compliance**.
 - Oracle behavior is the golden source; Postgres must match.
 
@@ -34,7 +35,7 @@ Extract:
 
 ## 2. Cross-Reference with o2p-dbmigration Skill Checklist
 For each failed test, analyze the error against the known Oracle→Postgres migration patterns documented in:
-- `{REPOSITORY_ROOT}/skills/o2p-dbmigration/references/`
+- `{REPOSITORY_ROOT}/.github/skills/o2p-dbmigration/references/`
 
 PATTERN MATCHING TABLE:
 | Error Pattern | Likely Cause | Reference File |
@@ -42,12 +43,27 @@ PATTERN MATCHING TABLE:
 | `NULL` vs empty string mismatch | Oracle treats '' as NULL | `empty-strings-handling.md` |
 | "no rows returned" or silent null | Missing NOT FOUND exception | `no-data-found-exceptions.md` |
 | Sort order differs between DBs | Collation mismatch | `oracle-to-postgres-sorting.md` |
+| TO_CHAR numeric format error | `TO_CHAR(numeric)` without format string | `oracle-to-postgres-to-char-numeric.md` |
 | Type mismatch / comparison error | Implicit coercion difference | `oracle-to-postgres-type-coercion.md` |
 | Cursor/result set empty or wrong | Refcursor handling difference | `postgres-refcursor-handling.md` |
 | "operation already in progress" or concurrent command error | Single active command per connection | `postgres-concurrent-transactions.md` |
 | `DateTime.Kind=Unspecified` or off-by-N-hours timestamp mismatch | CURRENT_TIMESTAMP/NOW() UTC vs session-timezone difference; Npgsql legacy timestamp mode | `oracle-to-postgres-timestamp-timezone.md` |
 
 For each failed test, tag the probable root cause category.
+
+## 2a. Loop Iteration Behavior
+
+- On **iteration 1** (no `LOOP_CONTEXT` provided): cross-reference all skill references from `{REPOSITORY_ROOT}/.github/skills/o2p-dbmigration/references/` to establish baseline failure categories.
+- On **iteration 2+** (when `LOOP_CONTEXT` is provided): narrow the cross-reference scope to only the `relevant_references` listed in `LOOP_CONTEXT`, unless a **new failure category** appears that was not present in prior iterations — in that case, add its reference back into scope.
+- Compare `current_failures` against `previous_failures` from `LOOP_CONTEXT` to determine whether progress is being made. If the count is unchanged or increasing after 3 iterations, recommend escalation.
+- Cross-reference `bug_reports_created` from `LOOP_CONTEXT` against the current failed tests to determine which prior bug reports are still unresolved.
+
+## 2b. Write/Update Loop State File
+
+After completing validation, write or overwrite the per-project loop state file at:
+`{REPOSITORY_ROOT}/.github/o2p-dbmigration/Reports/.loop-state-{ProjectName}.md`
+
+Use the format defined in `closed-loop-testing-workflow.md` (State Serialization section). This file enables the router to construct the `LOOP_CONTEXT` payload for subsequent iterations and allows the loop to resume if the conversation context is lost.
 
 ## 3. Apply Verification Checklist
 Review the `o2p-dbmigration` skill checklist (from `SKILL.md`):
@@ -72,7 +88,7 @@ Based on test results and checklist:
 
 ## 5. Output Validation Report
 Write the validation report to:
-`{REPOSITORY_ROOT}/.github/o2p-dbmigration/Reports/Validation Report.md`
+`{REPOSITORY_ROOT}/.github/o2p-dbmigration/Reports/{TARGET_PROJECT} Validation Report.md`
 
 REPORT TEMPLATE:
 ```markdown

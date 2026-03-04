@@ -20,17 +20,6 @@ INSTRUCTIONS:
 - Do not generate COMMENT or GRANT statements.
 - If required, or for increased clarity and efficiency, leverage PostgreSQL plugins or extensions, such as 'orafce', to replicate Oracle features.
 - Use ```COLLATE "C"``` option when ordering by text fields to ensure consistent behavior with Oracle's sorting.
-- Begin every function or stored procedure migration with the following search path statement:
-```
--- Set search_path for correct name resolution
-set SEARCH_PATH = {package_name_in_lower_case},{parent_schema_name},public;
-```
-- Replace COMMIT statements with the following snippet:
-```
--- PostgreSQL: No explicit COMMIT needed in functions or procedures
--- Transaction control is handled by the calling application
--- COMMIT;
-```
 
 AUTHORITATIVE RESOURCES TO CONSULT:
 - `{REPOSITORY_ROOT}/.github/o2p-dbmigration/DDL/Oracle/Procedures and Functions/*` (Oracle stored procedures pre-migration)
