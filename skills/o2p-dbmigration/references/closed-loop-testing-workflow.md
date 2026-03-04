@@ -8,37 +8,47 @@ The closed-loop **targets one project at a time**. When a solution contains mult
 
 Every testing subagent in the flow receives a `TARGET_PROJECT` parameter (absolute path to the single project under test) in its handoff payload. This ensures:
 
-- **planIntegrationTesting** scopes the plan to artifacts from the target project only.
-- **scaffoldTestProject** creates the test project for the target project only.
-- **createIntegrationTests** generates tests for the target project's data access layer only.
-- **runIntegrationTests** discovers and executes tests for the target project's test project only.
-- **validateTestResults** analyzes results for the target project only.
-- **createBugReports** scopes bug reports to the target project only.
+- **o2p-dbmigration-plan-integration-testing** scopes the plan to artifacts from the target project only.
+- **o2p-dbmigration-scaffold-test-project** creates the test project for the target project only.
+- **o2p-dbmigration-create-integration-tests** generates tests for the target project's data access layer only.
+- **o2p-dbmigration-run-integration-tests** discovers and executes tests for the target project's test project only.
+- **o2p-dbmigration-validate-test-results** analyzes results for the target project only.
+- **o2p-dbmigration-create-bug-reports** scopes bug reports to the target project only.
 
 The loop state file is also per-project (see State Serialization below).
 
 ## Flow
 
 ```
-planIntegrationTesting → scaffoldTestProject → createIntegrationTests → runIntegrationTests → validateTestResults
-                                                        ↑                      │
-                                                        │                      ▼
-                                                        │            ┌─────────────────┐
-                                                        │            │  Decision?      │
-                                                        │            └────────┬────────┘
-                                                        │         EXIT       │       LOOP
-                                                        │          ↓         │         ↓
-                                                        │   generateReport   │   createBugReports
-                                                        │                    │         │
-                                                        └────────────────────┴─────────┘
-                                                                (fix issues, re-run)
+plan → scaffold → create → run → validate
+                                    ↑     │
+                                    │     ▼
+                                    │  ┌─────────────────┐
+                                    │  │  Decision?      │
+                                    │  └────────┬────────┘
+                                    │    EXIT   │  LOOP
+                                    │     ↓     │    ↓
+                                    │   report  │  report bugs
+                                    │           │    │
+                                    └───────────┴────┘
+                                      (fix issues, re-run)
 ```
+
+**Step mapping:**
+
+- `plan` = `o2p-dbmigration-plan-integration-testing`
+- `scaffold` = `o2p-dbmigration-scaffold-test-project`
+- `create` = `o2p-dbmigration-create-integration-tests`
+- `run` = `o2p-dbmigration-run-integration-tests`
+- `validate` = `o2p-dbmigration-validate-test-results`
+- `report bugs` = `o2p-dbmigration-create-bug-reports`
+- `report` = `generateApplicationMigrationReport`
 
 ## Validation Decision Logic
 
 - **EXIT: SUCCESS** (100% pass + skill checklist complete) → Invoke `generateApplicationMigrationReport`, summarize success, end workflow.
 - **EXIT: CONDITIONAL** (>90% pass, minor gaps) → Document known issues, invoke `generateApplicationMigrationReport`, note limitations.
-- **LOOP: RETRY** (<90% pass OR critical checklist failures) → Invoke `createBugReports` for failures → prompt user/agent to fix → re-invoke `runIntegrationTests` → `validateTestResults`.
+- **LOOP: RETRY** (<90% pass OR critical checklist failures) → Invoke `o2p-dbmigration-create-bug-reports` for failures → prompt user/agent to fix → re-invoke `o2p-dbmigration-run-integration-tests` → `o2p-dbmigration-validate-test-results`.
 - **BLOCKED** (infrastructure failures, no DB connection) → Halt workflow, report blocking issues, request user intervention.
 
 ## Loop Control
@@ -46,10 +56,11 @@ planIntegrationTesting → scaffoldTestProject → createIntegrationTests → ru
 - Track iteration count; if >3 iterations without progress, escalate to user with summary of persistent failures.
 - After each loop iteration, compare failed test count to previous iteration; if unchanged, escalate.
 - Maintain loop state: `iteration: {n}, previous_failures: {count}, current_failures: {count}, blocking_issues: {list}`.
+- After each `o2p-dbmigration-validate-test-results` return, write/overwrite the per-project state file with current data.
 
 ## State Serialization
 
-After each loop iteration (after `validateTestResults` returns), write the current loop state to a **per-project** state file:
+After each loop iteration (after `o2p-dbmigration-validate-test-results` returns), write the current loop state to a **per-project** state file:
 `{REPOSITORY_ROOT}/.github/o2p-dbmigration/Reports/.loop-state-{ProjectName}.md`
 
 where `{ProjectName}` is derived from the `TARGET_PROJECT` folder name (e.g., `MIUS.API` → `.loop-state-MIUS.API.md`). This avoids conflicts when multiple projects are tested in sequence and allows each project's loop to be resumed independently.
@@ -92,14 +103,13 @@ State file format:
 Router behavior:
 
 - **Before first handoff in a testing goal:** check if `.loop-state-{ProjectName}.md` exists for the current `TARGET_PROJECT`. If it does, read it and resume from the recorded iteration rather than starting from scratch.
-- **After each `validateTestResults` return:** write/overwrite the per-project state file with current data.
 - **On EXIT (SUCCESS or CONDITIONAL):** keep the state file for audit trail; do not delete it.
 
 ## Reference Narrowing on Loop Iterations
 
-On the **first iteration**, `validateTestResults` should cross-reference all skill references to establish baseline failure categories.
+On the **first iteration**, `o2p-dbmigration-validate-test-results` should cross-reference all skill references to establish baseline failure categories.
 
-On **iteration 2+**, the router should narrow the context passed to `validateTestResults` and `createBugReports` by including only the references that matched failure categories in the previous iteration. Use the `relevant_references` field in the handoff payload.
+On **iteration 2+**, the router should narrow the context passed to `o2p-dbmigration-validate-test-results` and `o2p-dbmigration-create-bug-reports` by including only the references that matched failure categories in the previous iteration. Use the `relevant_references` field in the handoff payload.
 
 Reference-to-category mapping:
 
