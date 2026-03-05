@@ -22,6 +22,7 @@
   ],
   "skills": [
     "./skills/azure-resource-health-diagnose",
-    "./skills/az-cost-optimize"
+    "./skills/az-cost-optimize",
+    "./skills/import-infrastructure-as-code"
   ]
 }
