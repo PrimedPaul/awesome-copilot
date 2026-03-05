@@ -1,7 +1,6 @@
 # 🔌 Plugins
 
 Curated plugins of related agents and skills organized around specific themes, workflows, or use cases. Plugins can be installed directly via GitHub Copilot CLI.
-
 ### How to Contribute
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md#adding-plugins) for guidelines on how to contribute new plugins, improve existing ones, and share your use cases.
@@ -9,14 +8,12 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md#adding-plugins) for guidelines on how t
 ### How to Use Plugins
 
 **Browse Plugins:**
-
 - ⭐ Featured plugins are highlighted and appear at the top of the list
 - Explore themed plugins that group related customizations
 - Each plugin includes agents and skills for specific workflows
 - Plugins make it easy to adopt comprehensive toolkits for particular scenarios
 
 **Install Plugins:**
-
 - Use \`copilot plugin install <plugin-name>@awesome-copilot\` to install a plugin
 - Or browse to the individual files to copy content manually
 - Plugins help you discover related customizations you might have missed
@@ -37,13 +34,14 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md#adding-plugins) for guidelines on how t
 | [devops-oncall](../plugins/devops-oncall/README.md) | A focused set of prompts, instructions, and a chat mode to help triage incidents and respond quickly with DevOps tools and Azure resources. | 3 items | devops, incident-response, oncall, azure |
 | [edge-ai-tasks](../plugins/edge-ai-tasks/README.md) | Task Researcher and Task Planner for intermediate to expert users and large codebases - Brought to you by microsoft/edge-ai | 1 items | architecture, planning, research, tasks, implementation |
 | [frontend-web-dev](../plugins/frontend-web-dev/README.md) | Essential prompts, instructions, and chat modes for modern frontend web development including React, Angular, Vue, TypeScript, and CSS frameworks. | 3 items | frontend, web, react, typescript, javascript, css, html, angular, vue |
-| [gem-team](../plugins/gem-team/README.md) | A modular multi-agent team for complex project execution with DAG-based planning, parallel execution, TDD verification, and automated testing. | 1 items | multi-agent, orchestration, dag-planning, parallel-execution, tdd, verification, automation, security |
+| [gem-team](../plugins/gem-team/README.md) | A modular multi-agent team for complex project execution with DAG-based planning, parallel execution, TDD verification, and automated testing. | 1 items | multi-agent, orchestration, dag-planning, parallel-execution, tdd, verification, automation, security, prd |
 | [go-mcp-development](../plugins/go-mcp-development/README.md) | Complete toolkit for building Model Context Protocol (MCP) servers in Go using the official github.com/modelcontextprotocol/go-sdk. Includes instructions for best practices, a prompt for generating servers, and an expert chat mode for guidance. | 2 items | go, golang, mcp, model-context-protocol, server-development, sdk |
 | [java-development](../plugins/java-development/README.md) | Comprehensive collection of prompts and instructions for Java development including Spring Boot, Quarkus, testing, documentation, and best practices. | 4 items | java, springboot, quarkus, jpa, junit, javadoc |
 | [java-mcp-development](../plugins/java-mcp-development/README.md) | Complete toolkit for building Model Context Protocol servers in Java using the official MCP Java SDK with reactive streams and Spring Boot integration. | 2 items | java, mcp, model-context-protocol, server-development, sdk, reactive-streams, spring-boot, reactor |
 | [kotlin-mcp-development](../plugins/kotlin-mcp-development/README.md) | Complete toolkit for building Model Context Protocol (MCP) servers in Kotlin using the official io.modelcontextprotocol:kotlin-sdk library. Includes instructions for best practices, a prompt for generating servers, and an expert chat mode for guidance. | 2 items | kotlin, mcp, model-context-protocol, kotlin-multiplatform, server-development, ktor |
 | [mcp-m365-copilot](../plugins/mcp-m365-copilot/README.md) | Comprehensive collection for building declarative agents with Model Context Protocol integration for Microsoft 365 Copilot | 4 items | mcp, m365-copilot, declarative-agents, api-plugins, model-context-protocol, adaptive-cards |
 | [noob-mode](../plugins/noob-mode/README.md) | Plain-English translation layer for non-technical Copilot CLI users. Translates every approval prompt, error message, and technical output into clear, jargon-free English with color-coded risk indicators. | 1 items | accessibility, plain-english, non-technical, beginner, translation, copilot-cli, ux |
+| [o2p-dbmigration](../plugins/o2p-dbmigration/README.md) | Advisory agent for Oracle-to-PostgreSQL application migrations in .NET solutions. Educates users on migration concepts, pitfalls, and best practices; delegates to specialized sub-agents on user confirmation. | 10 items | oracle, postgresql, database-migration, dotnet, sql, migration, integration-testing, stored-procedures |
 | [openapi-to-application-csharp-dotnet](../plugins/openapi-to-application-csharp-dotnet/README.md) | Generate production-ready .NET applications from OpenAPI specifications. Includes ASP.NET Core project scaffolding, controller generation, entity framework integration, and C# best practices. | 2 items | openapi, code-generation, api, csharp, dotnet, aspnet |
 | [openapi-to-application-go](../plugins/openapi-to-application-go/README.md) | Generate production-ready Go applications from OpenAPI specifications. Includes project scaffolding, handler generation, middleware setup, and Go best practices for REST APIs. | 2 items | openapi, code-generation, api, go, golang |
 | [openapi-to-application-java-spring-boot](../plugins/openapi-to-application-java-spring-boot/README.md) | Generate production-ready Spring Boot applications from OpenAPI specifications. Includes project scaffolding, REST controller generation, service layer organization, and Spring Boot best practices. | 2 items | openapi, code-generation, api, java, spring-boot |
