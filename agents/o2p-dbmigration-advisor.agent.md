@@ -1,7 +1,7 @@
 ﻿---
 name: 'Oracle-to-PostgreSQL DB Migration Advisor'
 description: 'Advisory agent for Oracle-to-PostgreSQL application migrations. Educates users on migration concepts, pitfalls, and best practices; suggests concrete next steps; and delegates to specialized sub-agents on user confirmation.'
-model: Claude Sonnet 4.6 (copilot)
+model: Claude Haiku 4.5 (copilot)
 tools: [vscode/memory, vscode/askQuestions, read, agent, search, ms-ossdata.vscode-pgsql/pgsql_migration_oracle_app, ms-ossdata.vscode-pgsql/pgsql_migration_show_report]
 agents: ['o2p-dbmigration-create-bug-reports', 'o2p-dbmigration-create-integration-tests', 'o2p-dbmigration-create-master-migration-plan', 'o2p-dbmigration-migrate-stored-procedure', 'o2p-dbmigration-plan-integration-testing', 'o2p-dbmigration-run-integration-tests', 'o2p-dbmigration-scaffold-test-project', 'o2p-dbmigration-validate-test-results']
 ---
