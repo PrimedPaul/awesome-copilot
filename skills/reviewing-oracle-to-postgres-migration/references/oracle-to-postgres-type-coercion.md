@@ -1,11 +1,23 @@
 # Oracle to PostgreSQL Type Coercion Issues
 
+## Contents
+
+- Overview
+- The Problem — symptom, root cause, example
+- The Solution — string literals, explicit casting
+- Common Comparison Operators Affected
+- Detection Strategy
+- Real-World Example
+- Prevention Best Practices
+
 ## Overview
+
 This document describes a common migration issue encountered when porting SQL code from Oracle to PostgreSQL. The issue stems from fundamental differences in how these databases handle implicit type conversions in comparison operators.
 
 ## The Problem
 
 ### Symptom
+
 When migrating SQL queries from Oracle to PostgreSQL, you may encounter the following error:
 
 ```
@@ -14,25 +26,31 @@ POSITION: [line_number]
 ```
 
 ### Root Cause
+
 PostgreSQL has **strict type enforcement** and does not perform implicit type coercion in comparison operators. Oracle, by contrast, automatically converts operands to compatible types during comparison operations.
 
 #### Example Mismatch
 
 **Oracle SQL (works fine):**
+
 ```sql
 AND physical_address.pcountry_cd <> 124
 ```
+
 - `pcountry_cd` is a `VARCHAR2`
 - `124` is an integer literal
 - Oracle silently converts `124` to a string for comparison
 
 **PostgreSQL (fails):**
+
 ```sql
 AND physical_address.pcountry_cd <> 124
 ```
+
 ```
 42883: operator does not exist: character varying <> integer
 ```
+
 - `pcountry_cd` is a `character varying`
 - `124` is an integer literal
 - PostgreSQL rejects the comparison because the types don't match
@@ -40,6 +58,7 @@ AND physical_address.pcountry_cd <> 124
 ## The Solution
 
 ### Approach 1: Use String Literals (Recommended)
+
 Convert integer literals to string literals:
 
 ```sql
@@ -47,14 +66,17 @@ AND physical_address.pcountry_cd <> '124'
 ```
 
 **Pros:**
+
 - Semantically correct (country codes are typically stored as strings)
 - Most efficient
 - Clearest intent
 
 **Cons:**
+
 - None
 
 ### Approach 2: Explicit Type Casting
+
 Explicitly cast the integer to a string type:
 
 ```sql
@@ -62,16 +84,19 @@ AND physical_address.pcountry_cd <> CAST(124 AS VARCHAR)
 ```
 
 **Pros:**
+
 - Makes the conversion explicit and visible
 - Useful if the value is a parameter or complex expression
 
 **Cons:**
+
 - Slightly less efficient
 - More verbose
 
 ## Common Comparison Operators Affected
 
 All comparison operators can trigger this issue:
+
 - `<>` (not equal)
 - `=` (equal)
 - `<` (less than)
@@ -97,6 +122,7 @@ When migrating from Oracle to PostgreSQL:
 ## Real-World Example
 
 **Original Oracle Query:**
+
 ```sql
 SELECT ac040.stakeholder_id,
        ac006.organization_etxt
@@ -108,6 +134,7 @@ SELECT ac040.stakeholder_id,
 ```
 
 **Fixed PostgreSQL Query:**
+
 ```sql
 SELECT ac040.stakeholder_id,
        ac006.organization_etxt
@@ -148,12 +175,8 @@ SELECT ac040.stakeholder_id,
 ## Related Issues
 
 This issue is part of broader Oracle → PostgreSQL migration challenges:
+
 - Implicit function conversions (e.g., `TO_CHAR`, `TO_DATE`)
 - String concatenation operator differences (`||` works in both, but behavior differs)
 - Numeric precision and rounding differences
 - NULL handling in comparisons
-
----
-
-**Last Updated:** 2024
-**Affected Versions:** PostgreSQL 9.6+, Npgsql 4.0+

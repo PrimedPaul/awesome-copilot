@@ -9,6 +9,7 @@ A common issue when migrating from Oracle to PostgreSQL involves `SELECT INTO` s
 ## Problem Description
 
 ### Scenario
+
 A stored procedure performs a lookup operation using `SELECT INTO` to retrieve a required value:
 
 ```sql
@@ -19,7 +20,9 @@ WHERE table1.id = table2.id AND table1.id = parameter_value;
 ```
 
 ### Oracle Behavior
+
 When a `SELECT INTO` statement in Oracle does **not find any rows**, it automatically raises:
+
 ```
 ORA-01403: no data found
 ```
@@ -27,7 +30,9 @@ ORA-01403: no data found
 This exception is caught by the procedure's exception handler and re-raised to the calling application.
 
 ### PostgreSQL Behavior (Pre-Fix)
+
 When a `SELECT INTO` statement in PostgreSQL does **not find any rows**, it:
+
 - Sets the `FOUND` variable to `false`
 - **Silently continues** execution without raising an exception
 - Leaves the target variable uninitialized
@@ -41,6 +46,7 @@ This fundamental difference can cause tests to fail silently and logic errors in
 The PostgreSQL version was missing explicit error handling for the `NOT FOUND` condition after the `SELECT INTO` statement.
 
 **Original Code (Problematic):**
+
 ```plpgsql
 SELECT column_name
 INTO variable_name
@@ -60,10 +66,10 @@ END IF;
 
 ## Key Differences: Oracle vs PostgreSQL
 
-
 Add explicit `NOT FOUND` error handling to match Oracle behavior.
 
 **Fixed Code:**
+
 ```plpgsql
 SELECT column_name
 INTO variable_name
@@ -78,8 +84,9 @@ END IF;
 IF variable_name = 'X' THEN
  result_variable := 1;
 ELSE
- result_variableconditional logic
- ```
+ result_variable := 2;
+END IF;
+```
 
 ---
 

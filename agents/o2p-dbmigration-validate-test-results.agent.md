@@ -1,13 +1,13 @@
 ---
 name: o2p-dbmigration-validate-test-results
 user-invokable: false
-description: 'Analyze test results, apply o2p-dbmigration skill checklist, and produce a validation report for the migration.'
+description: 'Analyze test results, apply reviewing-oracle-to-postgres-migration skill checklist, and produce a validation report for the migration.'
 model: Claude Sonnet 4.6 (copilot)
 tools: [vscode/askQuestions, read, edit, search, todo]
 ---
 # Validate Integration Test Results
 
-Analyze test execution results, cross-reference with the `o2p-dbmigration` skill verification checklist, and produce a validation report. This prompt targets a **single project** identified by `TARGET_PROJECT`.
+Analyze test execution results, cross-reference with the `reviewing-oracle-to-postgres-migration` skill verification checklist, and produce a validation report. This prompt targets a **single project** identified by `TARGET_PROJECT`.
 
 ## Expected Inputs (from router handoff payload)
 
@@ -32,9 +32,9 @@ Extract:
 - List of failed test names with error messages
 - Any timeout or infrastructure errors (connection failures, timeouts)
 
-## 2. Cross-Reference with o2p-dbmigration Skill Checklist
+## 2. Cross-Reference with reviewing-oracle-to-postgres-migration Skill Checklist
 For each failed test, analyze the error against the known Oracle→Postgres migration patterns documented in:
-- `{REPOSITORY_ROOT}/.github/skills/o2p-dbmigration/references/`
+- `{REPOSITORY_ROOT}/.github/skills/reviewing-oracle-to-postgres-migration/references/`
 
 PATTERN MATCHING TABLE:
 | Error Pattern | Likely Cause | Reference File |
@@ -51,7 +51,7 @@ PATTERN MATCHING TABLE:
 For each failed test, tag the probable root cause category.
 
 ## 3. Apply Verification Checklist
-Review the `o2p-dbmigration` skill checklist (from `SKILL.md`):
+Review the `reviewing-oracle-to-postgres-migration` skill checklist (from `SKILL.md`):
 
 - [ ] Migration artifact review documented with affected components.
 - [ ] Each `references/*.md` insight acknowledged and steps taken (including timestamp/timezone handling).

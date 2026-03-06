@@ -1,5 +1,18 @@
 # Oracle to PostgreSQL: Refcursor Handling in Client Applications
 
+## Contents
+
+- Overview
+- The Core Difference
+- Common Error Symptoms
+- Database Stored Procedure Pattern
+- Client Code Solution (C#) — problematic code, solution, generic helper
+- Transactional Context
+- Debugging Tips
+- Comparison Table
+- Best Practices
+- Migration Checklist
+
 ## Overview
 
 When migrating from Oracle to PostgreSQL, a critical difference exists in how **refcursor** (reference cursor) output parameters are handled by client applications. Oracle's driver automatically unwraps refcursors to expose result sets directly, while PostgreSQL's Npgsql driver returns a cursor name that must be explicitly fetched. This fundamental difference requires client code modifications to avoid runtime errors.
@@ -386,7 +399,3 @@ When migrating Oracle applications to PostgreSQL:
 - [PostgreSQL FETCH Command](https://www.postgresql.org/docs/current/sql-fetch.html)
 - [Npgsql Documentation: Basic Types](https://www.npgsql.org/doc/types/basic.html)
 - [Npgsql Refcursor Support](https://github.com/npgsql/npgsql/issues/1887)
-
----
-
-*This document provides guidance for handling refcursor differences when migrating from Oracle to PostgreSQL. Adapt the code examples to your specific application architecture and requirements.*

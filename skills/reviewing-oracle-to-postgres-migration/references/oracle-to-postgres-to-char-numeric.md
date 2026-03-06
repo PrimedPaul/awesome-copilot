@@ -1,8 +1,20 @@
 # Oracle to PostgreSQL: TO_CHAR() Numeric Conversions
 
+## Contents
+
+- Problem
+- Root Cause
+- Solution Patterns — CAST, format string, concatenation
+- Migration Checklist
+- Application Code Review
+- Testing Recommendations
+- Common Locations
+- Error Messages to Watch For
+
 ## Problem
 
 Oracle allows `TO_CHAR()` to convert numeric types to strings without a format specifier:
+
 ```sql
 -- Oracle: Works fine
 SELECT TO_CHAR(vessel_id) FROM vessels;
@@ -10,6 +22,7 @@ SELECT TO_CHAR(fiscal_year) FROM certificates;
 ```
 
 PostgreSQL requires a format string when using `TO_CHAR()` with numeric types, otherwise it raises:
+
 ```
 42883: function to_char(numeric) does not exist
 ```
@@ -34,6 +47,7 @@ SELECT CAST(vessel_id AS TEXT) AS vessel_item FROM vessels;
 ```
 
 **Advantages:**
+
 - More idiomatic in PostgreSQL
 - Clearer intent
 - No format string needed
@@ -49,6 +63,7 @@ SELECT TO_CHAR(amount, 'FM999999.00') AS amount_text FROM payments;
 ```
 
 **Format masks:**
+
 - `'FM999999'`: Fixed-width integer (FM = Fill Mode, removes leading spaces)
 - `'FM999999.00'`: Decimal with 2 places
 - `'999,999.00'`: With thousand separators
@@ -107,6 +122,7 @@ var sql = "SELECT CAST(id AS TEXT) AS id_text FROM entities WHERE CAST(status AS
 ## Testing Recommendations
 
 1. **Unit Tests**: Verify numeric-to-string conversions return expected values
+
    ```csharp
    [Fact]
    public void GetVesselNumbers_ReturnsVesselIdsAsStrings()
@@ -122,6 +138,7 @@ var sql = "SELECT CAST(id AS TEXT) AS id_text FROM entities WHERE CAST(status AS
 ## Common Locations
 
 Search for `TO_CHAR` in:
+
 - ✅ Stored procedures and functions (DDL scripts)
 - ✅ Application data access layers (DAL classes)
 - ✅ Dynamic SQL builders

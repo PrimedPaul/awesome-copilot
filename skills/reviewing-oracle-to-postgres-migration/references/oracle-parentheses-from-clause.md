@@ -1,8 +1,21 @@
 # Oracle to PostgreSQL: Parentheses in FROM Clause
 
+## Contents
+
+- Problem
+- Root Cause
+- Solution Pattern
+- Examples
+- Migration Checklist
+- Common Locations
+- Application Code Examples
+- Error Messages to Watch For
+- Testing Recommendations
+
 ## Problem
 
 Oracle allows optional parentheses around table names in the FROM clause:
+
 ```sql
 -- Oracle: Both are valid
 SELECT * FROM (TABLE_NAME) WHERE id = 1;
@@ -10,6 +23,7 @@ SELECT * FROM TABLE_NAME WHERE id = 1;
 ```
 
 PostgreSQL does **not** allow extra parentheses around a single table name in the FROM clause without it being a derived table or subquery. Attempting to use this pattern results in:
+
 ```
 Npgsql.PostgresException: 42601: syntax error at or near ")"
 ```
@@ -103,6 +117,7 @@ When fixing this issue, verify:
 ## Common Locations
 
 Search for `FROM (` in:
+
 - ✅ Stored procedures and functions (DDL scripts)
 - ✅ Application data access layers (DAL classes)
 - ✅ Dynamic SQL builders
@@ -126,7 +141,7 @@ StrSQL = "SELECT employee_id, NAME " _
        & "WHERE e.department_id = 10"
 ```
 
-### C#
+### C #
 
 ```csharp
 // Before (Oracle)
@@ -148,6 +163,7 @@ LINE 1: SELECT * FROM (TABLE_NAME) WHERE ...
 ## Testing Recommendations
 
 1. **Syntax Verification**: Parse all migrated queries to ensure they run without syntax errors
+
    ```csharp
    [Fact]
    public void GetEmployees_ExecutesWithoutSyntaxError()

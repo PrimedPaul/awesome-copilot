@@ -29,7 +29,7 @@ copilot plugin install o2p-dbmigration@awesome-copilot
 
 | Skill | Description |
 |-------|-------------|
-| `o2p-dbmigration` | Validates PostgreSQL migration artifacts and integration tests, making sure every reference insight is surfaced before agent workflows sign off. Codifies expectations for validation, testing, and documentation across the migration workload. |
+| `reviewing-oracle-to-postgres-migration` | Identifies Oracle-to-PostgreSQL migration risks by cross-referencing code against known behavioral differences. Codifies expectations for risk assessment, validation, testing, and documentation across the migration workload. |
 
 ## Features
 
@@ -38,7 +38,7 @@ copilot plugin install o2p-dbmigration@awesome-copilot
 The advisor agent educates users throughout the migration journey:
 
 - **Migration Concepts**: Explains Oracle→PostgreSQL differences (empty strings, null handling, sorting, timestamps, type coercion, etc.)
-- **Pitfall Reference**: Surfaces insights from the `o2p-dbmigration` skill references so users understand why changes are needed
+- **Pitfall Reference**: Surfaces insights from the `reviewing-oracle-to-postgres-migration` skill references so users understand why changes are needed
 - **Best Practices**: Advises on minimizing changes, preserving logic, and ensuring schema immutability
 - **Workflow Guidance**: Presents a recommended 11-step migration workflow (discovery, planning, code migration, validation, reporting) as a guide users can follow at their own pace
 

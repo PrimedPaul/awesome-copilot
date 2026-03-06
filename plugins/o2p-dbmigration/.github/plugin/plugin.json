@@ -29,6 +29,6 @@
     "./agents/o2p-dbmigration-validate-test-results.md"
   ],
   "skills": [
-    "./skills/o2p-dbmigration/"
+    "./skills/reviewing-oracle-to-postgres-migration/"
   ]
 }

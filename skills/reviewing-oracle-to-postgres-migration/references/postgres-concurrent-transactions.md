@@ -1,5 +1,18 @@
 # Oracle to PostgreSQL: Concurrent Transaction Handling
 
+## Contents
+
+- Overview
+- The Core Difference
+- Common Error Symptoms
+- Problem Scenarios
+- Solutions — materialize results, separate connections, single query
+- Detection Strategy
+- Error Messages to Watch For
+- Comparison Table
+- Best Practices
+- Migration Checklist
+
 ## Overview
 
 When migrating from Oracle to PostgreSQL, a critical difference exists in how **concurrent operations on a single database connection** are handled. Oracle's ODP.NET driver allows multiple active commands and result sets on the same connection simultaneously, while PostgreSQL's Npgsql driver enforces a strict **one active command per connection** rule. Code that worked seamlessly in Oracle will throw runtime exceptions in PostgreSQL if concurrent operations share a connection.
@@ -7,11 +20,13 @@ When migrating from Oracle to PostgreSQL, a critical difference exists in how **
 ## The Core Difference
 
 **Oracle Behavior:**
+
 - A single connection can have multiple active commands executing concurrently
 - Opening a second `DataReader` while another is still open is permitted
 - Nested or overlapping database calls on the same connection work transparently
 
 **PostgreSQL Behavior:**
+
 - A connection supports only **one active command at a time**
 - Attempting to execute a second command while a `DataReader` is open throws an exception
 - Lazy-loaded navigation properties or callback-driven reads that trigger additional queries on the same connection will fail
@@ -242,7 +257,3 @@ ExecuteReader\(.*\)[\s\S]*?Execute(Scalar|NonQuery|Reader)\(
 - [Npgsql Documentation: Basic Usage](https://www.npgsql.org/doc/basic-usage.html)
 - [PostgreSQL Documentation: Concurrency Control](https://www.postgresql.org/docs/current/mvcc.html)
 - [Npgsql GitHub: Multiple Active Result Sets Discussion](https://github.com/npgsql/npgsql/issues/462)
-
----
-
-*This document provides guidance for handling concurrent transaction and command differences when migrating from Oracle to PostgreSQL. Adapt the code examples to your specific application architecture and requirements.*

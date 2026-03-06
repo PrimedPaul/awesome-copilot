@@ -1,5 +1,15 @@
 # Oracle to PostgreSQL: CURRENT_TIMESTAMP and NOW() Timezone Handling
 
+## Contents
+
+- Problem
+- Behavior Comparison
+- PostgreSQL Timezone Precedence
+- Common Error Symptoms
+- Migration Actions — Npgsql config, DateTime normalization, stored procedures, session timezone, application code
+- Integration Test Patterns
+- Checklist
+
 ## Problem
 
 Oracle's `CURRENT_TIMESTAMP` returns a value in the **session timezone** and stores it in the column's declared precision. When .NET reads this value back via ODP.NET, it is surfaced as a `DateTime` with `Kind=Local`, reflecting the OS timezone of the client.
