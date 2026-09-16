@@ -3,7 +3,7 @@ title: 'Getting Started with the GitHub Copilot app'
 description: 'Learn about the GitHub Copilot app, a desktop experience built for agent-native development. Understand its key features and who it''s for.'
 authors:
   - GitHub Copilot Learning Hub Team
-lastUpdated: 2026-09-02
+lastUpdated: 2026-09-16
 estimatedReadingTime: '8 minutes'
 tags:
   - copilot-app
@@ -71,6 +71,10 @@ This makes it easy to dispatch multiple agents and trust they won't interfere wi
 ### Running in the Background
 
 Closing the app's main window keeps it running in the background instead of quitting, with tray (Windows/Linux) or Dock (macOS) support to bring it back. This means scheduled automations and in-progress sessions keep running even when the window isn't open.
+
+### Generated Artifacts in the Files Tab
+
+**Artifacts** *(v1.1.20+)* are generated files, such as Markdown documents an agent writes during a session, that now open in the **Files** tab alongside your repository files. A switcher lets you move between the artifact and repository file views, and you can promote an artifact into the repository if you want to keep it as a tracked file.
 
 ### Canvases
 
@@ -166,6 +170,10 @@ Once installed, you can create a session by:
 3. **From your inbox**: The app syncs your GitHub inbox—click an issue and start a session for it
 
 Each session runs in its own worktree with its own isolated environment. You can run multiple sessions in parallel.
+
+> **Renamed (v1.1.20+)**: The **"Start from scratch"** option in session creation menus and project pickers is now called **"Chat"**. If you've used the app before, look for **Chat** where you previously saw "Start from scratch."
+
+> **Agent picker disambiguation (v1.1.20+)**: If you've installed multiple plugins that each contribute a custom agent with the same display name, the agent picker and the `/agent` autocomplete in the prompt composer now label each entry with its owning plugin so you can tell them apart.
 
 ### Launching Sessions from the Terminal with Deep Links
 
