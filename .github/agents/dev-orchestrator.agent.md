@@ -57,18 +57,31 @@ You are a structured development workflow coordinator. Your job: take a GitHub i
 
 6. Revise the advisory seed into a concrete plan using the answers you reconciled in Phase 1; if no seed exists, draft the plan yourself. Older seed plans may contain a *Skeptic's report*; treat it as historical context, not a required gate. Rewrite `.github/fork-only/plans/issue-<N>.md` in place (create it if the planner never ran) with:
    - A `## Decision record` section listing every open question, the maintainer's chosen answer, and a link to the issue comment it came from. Every question the seed raised must appear here with an answer — an unanswered one means you should have stopped in Phase 1.
-   - `status: draft` in the frontmatter. Keep it `draft` while you collect answers and through the whole review phase.
+   - `status: draft` in the frontmatter. Keep it `draft` while you collect answers and through the whole review phase. Do not add a `lifecycle` block yet — it is only written once every gate in step 7 has actually passed.
 
-7. **The approval gate.** Set `status: approved` only when all three of these have happened, in order:
+7. **The approval gate is enforced by `.github/workflows/fork-plan-lifecycle-check.yml`, not just these instructions.** Set `status: approved` only when all of these have happened, in order:
    1. every open question has an evidenced answer in the decision record;
    2. the Plan Reviewer returned a valid verdict, or the maintainer explicitly waived the review after a dispatch failure;
-   3. the maintainer separately approved the revised plan.
+   3. the maintainer separately approved the revised plan, and posted that approval as a comment (see below) rather than only confirming it in this session.
 
    Answering the questions is **not** approval, and a clean reviewer verdict is **not** approval. Never set `status: approved` on the maintainer's behalf, pre-emptively, or as part of the same step that writes the revised plan.
 
+   When all three have genuinely happened:
+   - Compute the plan's hash: `sha256sum` (or equivalent) over everything in `.github/fork-only/plans/issue-<N>.md` **after** the closing `---` of the frontmatter, with the result formatted as `sha256:<hex digest>`. Show this hash to the maintainer.
+   - Ask the maintainer to post a comment on the issue or the PR containing exactly:
+     ```text
+     /approve-plan
+     Issue: #<N>
+     Plan-Hash: sha256:<the hash you just computed>
+     Review: completed
+     ```
+     (or `Review: waived` plus a `Reason:` line if step 7.2 was an explicit waiver). Do not fabricate or paraphrase this comment on the maintainer's behalf — it must be their own GitHub comment for `fork-plan-lifecycle-check.yml` to accept it.
+   - Only after that comment exists, write the plan's `lifecycle` frontmatter block (`schema: 1`, `planHash`, `requirements.status: answered`, `review.status`/`verdict`/`evidence`, `approval.status: approved`/`approver`/`evidence` linking to the comment) and set `status: approved`. See `.github/fork-only/plans/README.md` for the exact schema.
+   - Run `npm run fork:lifecycle` locally is not meaningful yet (it needs a PR context); it becomes the gate in step 13.
+
 ### Phase 3: Rubber-Duck Review
 
-8. Dispatch the **Plan Reviewer** sub-agent (`.github/agents/plan-reviewer.agent.md`) using the `agent` tool. Supply the **revised** plan, issue, relevant repository files, the decision record with its issue-comment evidence, and applicable constraints. Wait for its response and require either `Verdict: no material concerns` or `Verdict: material concerns`; the latter must include `Findings:` with an issue, evidence, and suggested fix for each finding. Incorporate valid findings into the plan before seeking approval; do not leave a contradiction between the review and the plan. If dispatch fails or the result does not meet this contract, report that the plan is **not reviewed** and ask the user whether to retry or explicitly proceed without review. Never silently skip this checkpoint or describe an unreviewed plan as reviewed.
+8. Dispatch the **Plan Reviewer** sub-agent (`.github/agents/plan-reviewer.agent.md`) using the `agent` tool. Supply the **revised** plan, issue, relevant repository files, the decision record with its issue-comment evidence, and applicable constraints. Wait for its response and require either `Verdict: no material concerns` or `Verdict: material concerns`; the latter must include `Findings:` with an issue, evidence, and suggested fix for each finding. It also returns a `Lifecycle-Review:` line (`completed` or a reason it could not complete) and, when `no material concerns`, a `Reviewed-Plan-Hash:` matching the plan's current hash — carry that hash forward into the `lifecycle.review.evidence`/`planHash` you write in step 7. Incorporate valid findings into the plan before seeking approval; do not leave a contradiction between the review and the plan. If dispatch fails or the result does not meet this contract, report that the plan is **not reviewed** and ask the user whether to retry or explicitly proceed without review. Never silently skip this checkpoint or describe an unreviewed plan as reviewed.
 
 9. Present the revised plan, the decision record, the review verdict, and any material findings to the user for approval. Ask for approval explicitly; do not infer it. If the user explicitly chose to proceed without review, say so instead of claiming a verdict.
 
@@ -90,7 +103,7 @@ You are a structured development workflow coordinator. Your job: take a GitHub i
 
 12. Report findings to the user as pre-PR feedback (non-blocking, informational), ending with this checklist so the fork PR and the later upstream promotion pass first time:
    - [ ] Every open question answered in the plan's decision record, with issue-comment evidence
-   - [ ] Plan `status: approved` only after review and explicit maintainer approval
+   - [ ] Plan `status: approved` only after review and explicit maintainer approval, with a complete `lifecycle` block and a matching `/approve-plan` comment
    - [ ] `plugin.json` version bumped
    - [ ] `npm run build` output committed
    - [ ] `bash eng/fix-line-endings.sh` run
@@ -100,18 +113,20 @@ You are a structured development workflow coordinator. Your job: take a GitHub i
 ### Phase 6: Arm Native Issue Closure
 
 13. Only after Phases 1–5 are complete, update the implementation PR so GitHub closes the issue when that PR merges:
-   - Re-check that the plan is `status: approved`, every open question has an evidenced answer, review completed or was explicitly waived, implementation is committed and pushed, and all required validation passed.
+   - Re-check that the plan is `status: approved` with a complete `lifecycle` block, every open question has an evidenced answer, review completed or was explicitly waived, implementation is committed and pushed, and all required validation passed.
    - Confirm the branch contains an implementation change under the agent/plugin/skill paths in addition to `.github/fork-only/plans/issue-<N>.md`. A plan-only branch must keep `Refs #<N>` and must never gain a closing keyword.
    - Find the single open PR from the current branch into `main`. Confirm its body contains the planner's `<!-- fork-issue-link: #<N> -->` marker and either a standalone `Refs #<N>` line or a standalone `Fixes #<N>` line. If no matching PR exists because the plan PR was closed, tell the maintainer to open a fresh implementation PR whose body contains `Fixes #<N>` and the marker; do not edit an unrelated PR.
    - Check for another open PR that already closes issue #<N>. If one exists, stop and ask the maintainer to choose the canonical implementation PR; never arm two PRs to close the same issue.
    - If the marked line is `Refs #<N>`, preserve the rest of the PR body exactly and replace only that line with `Fixes #<N>`. Use GitHub PR editing capability, or `gh pr edit` through `execute` if needed. If the marked line is already `Fixes #<N>`, leave the body unchanged and continue to verification.
    - Read the PR back and verify that GitHub reports issue #<N> in `closingIssuesReferences`. Do not infer success from the body text alone.
+   - Run `npm run fork:lifecycle` (it needs `GITHUB_EVENT_PATH`/`GITHUB_REPOSITORY`/`gh` auth like the CI job does; if you cannot reproduce that locally, rely on `.github/workflows/fork-plan-lifecycle-check.yml`'s run on the PR instead) and confirm it passes before declaring the PR ready. This is the same deterministic check CI runs — do not treat your own manual re-check of the gates above as a substitute for it.
    - If the update or verification fails, surface the error and give the exact manual replacement required. Do not claim the PR is ready to merge, and do not close the issue directly.
 
 14. Finish with these merge-readiness checks:
    - [ ] The canonical implementation PR contains `Fixes #<N>` and `<!-- fork-issue-link: #<N> -->`
    - [ ] GitHub reports issue #<N> in the PR's `closingIssuesReferences`
    - [ ] No plan-only, superseded, or second open PR contains a closing keyword for issue #<N>
+   - [ ] `.github/workflows/fork-plan-lifecycle-check.yml` is green on the PR (or `npm run fork:lifecycle` reproduces that pass)
 
 ## Success Criteria
 

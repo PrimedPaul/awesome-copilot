@@ -1,0 +1,108 @@
+# Fork-only. Deterministically enforces the plan approval lifecycle documented
+# in .github/fork-only/plans/README.md: an approved plan must carry
+# machine-readable lifecycle evidence (requirements answered, review
+# completed/waived, maintainer /approve-plan comment matching a content hash),
+# and "Fixes #N" may only be armed on an implementation PR once that evidence
+# checks out and GitHub itself reports the closing reference. Never proposed
+# upstream itself.
+name: Fork Plan Lifecycle Check
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/fork-only/plans/**"
+      - "agents/oracle-to-postgres-migration-expert.agent.md"
+      - "plugins/oracle-to-postgres-migration-expert/**"
+      - "skills/*oracle-to-postgres*/**"
+      - "eng/validate-fork-plan-lifecycle.mjs"
+      - ".github/workflows/fork-plan-lifecycle-check.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  lifecycle-check:
+    name: Plan approval lifecycle validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate plan approval lifecycle
+        id: validate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run fork:lifecycle
+
+      - name: Manage validation summary on PR
+        if: always()
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        with:
+          script: |
+            const marker = '<!-- fork-plan-lifecycle-check -->';
+            const validationOutcome = '${{ steps.validate.outcome }}';
+            const validationFailed = validationOutcome === 'failure';
+            const validationPassed = validationOutcome === 'success';
+            const body = [
+              marker,
+              '🛑 **Plan approval lifecycle check failed**',
+              '',
+              'This PR does not satisfy the approval lifecycle in `.github/fork-only/plans/README.md`.',
+              'Common causes:',
+              '- The PR body is missing (or has both) a `Refs #N` / `Fixes #N` line.',
+              '- An implementation PR touches something outside the agent/plugin/skills surface and its matching plan file.',
+              '- The plan is `status: approved` but its `lifecycle` frontmatter block is missing or incomplete.',
+              '- `lifecycle.planHash` does not match the plan\'s current content (re-approve after edits).',
+              '- No matching `/approve-plan` comment from the repository owner was found on the issue or PR.',
+              '- `Fixes #N` was used before the plan was approved, or GitHub does not report this PR as closing the issue.',
+              '',
+              'Run `npm run fork:lifecycle` locally against this branch to see the full list of errors.',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+
+            const existing = comments.find((comment) => comment.body.includes(marker));
+
+            if (validationFailed && existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+              console.log(`Updated existing validation comment ${existing.id}`);
+            } else if (validationFailed) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+              console.log('Created validation comment');
+            } else if (validationPassed && existing) {
+              await github.rest.issues.deleteComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+              });
+              console.log(`Deleted stale validation comment ${existing.id}`);
+            }
