@@ -2,7 +2,7 @@
 issue: 66
 title: 'Update Custom Agent''s Model Frontmatter to a supported value'
 scope: agent
-status: draft
+status: approved
 ---
 
 ## Issue summary
@@ -47,29 +47,41 @@ status: draft
 ## Plan
 
 1. **`agents/oracle-to-postgres-migration-expert.agent.md`** (frontmatter, `model:` line):
-   - Replace `model: claude-sonnet-5` with the maintainer-confirmed supported value once known (see Open Questions). Do not guess a new string without confirmation — a wrong guess reproduces this exact bug.
+   - Replace `model: claude-sonnet-5` with `model: 'Claude Sonnet 5'`, the exact display name supplied by the maintainer.
 2. **`plugins/oracle-to-postgres-migration-expert/plugin.json`** (`version` field):
-   - Bump `"version": "1.1.2"` to `"version": "1.1.3"` — **patch** level, because this only corrects a misconfigured frontmatter value with no new capability, skill, or behavior change (same reasoning class as the `1.1.1` → `1.1.2` bump from issue #53).
-3. **No other files** — do not touch skills, other agent frontmatter fields, `.github/agents/*`, or any workflow.
+   - Bump the version one patch level from this fork's current `1.1.2` to `1.1.3`, preserving monotonic versioning and satisfying the fork promotion workflow. Canonical upstream `github/awesome-copilot` is at `1.1.0`; the fork's existing higher version must not be downgraded.
+3. **No other files** — do not change skills, other agent frontmatter fields, `.github/agents/*`, or any workflow.
 
 ## Acceptance criteria
 
-- [ ] The agent's `model:` field is set to a value the maintainer has explicitly confirmed resolves in their Copilot client (not a guess).
-- [ ] The plugin version is exactly `1.1.3`.
-- [ ] No fields except the agent's `model:` value and the plugin version differ from the pre-change files.
+- [ ] The agent's `model:` field is exactly `Claude Sonnet 5`, the display name explicitly supplied by the maintainer.
+- [ ] The plugin version is exactly `1.1.3`, one patch level above this fork's current `1.1.2` and higher than canonical upstream `github/awesome-copilot` `main`'s `1.1.0`.
+- [ ] No files or fields except the agent's `model:` value and plugin version differ from the pre-change files.
 - [ ] `npm run build`, `npm run plugin:validate`, and `bash eng/fix-line-endings.sh` all pass cleanly.
 - [ ] The maintainer has personally verified, in a live Copilot client, that the new value no longer produces an unsupported-model error (this cannot be verified by any command in this repo).
 
 ## Open questions
 
-- **Q1 — what does "not supported" mean, exactly** — options: (a) the VS Code Copilot Chat model picker rejects `claude-sonnet-5`, (b) GitHub Copilot CLI's `/model` rejects it, (c) the Copilot coding agent runtime silently falls back to a default, (d) something else entirely (paste the exact error text if you have it). I would pick: none — I have no basis to guess; please paste the exact error message and which surface produced it.
-- **Q2 — the confirmed-working replacement value** — options: (a) a corrected slug such as `claude-sonnet-4-5` or `claude-sonnet-4.5` matching other agents already in this repo, (b) a display-name string such as `'Claude Sonnet 4.5'`, (c) a genuinely new `claude-sonnet-5`-family identifier if that model has since become available under a different exact string, (d) something else you found in your own client's picker. I would pick: whichever exact string you can copy directly out of your client's model picker — that is strictly more reliable than any guess I could offer.
-- **Q3 — should the two fork-only agents also change** — `.github/agents/dev-orchestrator.agent.md` and `.github/agents/plan-reviewer.agent.md` also currently use `model: claude-sonnet-5` and are outside this issue's stated scope and outside upstream-promoted files. Options: (a) leave them alone, fix only the promoted agent (my default reading of the issue), (b) fix all three for consistency now, (c) file that as a separate follow-up issue. I would pick: (a) — this issue is about "the Custom Agent," and those two files are fork tooling never promoted upstream, so bundling their fix in here would blur the diff this issue is meant to produce.
+**All questions are answered.**
+
+- **Q1 — affected surface and failure:** When the maintainer selects the custom agent in VS Code or GitHub Copilot, the model defined canonically in frontmatter is not selected or recognized. Evidence: [issue comment](https://github.com/PrimedPaul/awesome-copilot/issues/66#issuecomment-5825471866).
+- **Q2 — replacement value and format:** Use the display name `Claude Sonnet 5`, not the model ID. Evidence: [issue comment](https://github.com/PrimedPaul/awesome-copilot/issues/66#issuecomment-5825471866) and direct maintainer confirmation in session on 2026-09-24.
+- **Q3 — scope:** Only change the Oracle-to-PostgreSQL agent's frontmatter model field. Evidence: [issue comment](https://github.com/PrimedPaul/awesome-copilot/issues/66#issuecomment-5825471866).
+- **Q4 — required version metadata:** Include the required plugin version bump without downgrading the fork. Canonical upstream `github/awesome-copilot` `main` reports `1.1.0`, while this fork currently has `1.1.2`; the maintainer confirmed the target should be `1.1.3`. Evidence: direct maintainer confirmations in session on 2026-09-24; both upstream and fork `plugin.json` values read from `main`/working tree.
+
+## Decision record
+
+| Question | Decision | Evidence |
+|---|---|---|
+| Q1 — affected surface and failure | VS Code or GitHub Copilot does not recognize/select the canonical frontmatter model when the custom agent is selected. | [Maintainer issue comment](https://github.com/PrimedPaul/awesome-copilot/issues/66#issuecomment-5825471866) |
+| Q2 — replacement value and format | Use the exact display name `Claude Sonnet 5`, not a model ID. | [Maintainer issue comment](https://github.com/PrimedPaul/awesome-copilot/issues/66#issuecomment-5825471866); direct maintainer confirmation in session, 2026-09-24 |
+| Q3 — scope | Change only the Oracle-to-PostgreSQL agent's frontmatter `model` field. | [Maintainer issue comment](https://github.com/PrimedPaul/awesome-copilot/issues/66#issuecomment-5825471866) |
+| Q4 — version metadata | Bump the fork's current `plugin.json` version `1.1.2` to `1.1.3`; do not downgrade to canonical upstream's `1.1.0`-based `1.1.1`. | Direct maintainer confirmation in session, 2026-09-24; canonical upstream `github/awesome-copilot` `main` is `1.1.0`; fork working tree is `1.1.2` |
 
 ## Verification
 
 - `npm run build` — regenerate README/marketplace after edits.
 - `bash eng/fix-line-endings.sh` — normalize line endings.
-- `npm run plugin:validate` — confirm `plugin.json` version bump and structure are valid.
+- `npm run plugin:validate` — confirm the version bump and plugin structure are valid.
 - `npm run skill:validate` — no skill files touched, but run for completeness since this agent's plugin bundles skills.
 - Manual (cannot be automated in this sandbox): open the agent in the actual Copilot client named in Q1's answer and confirm the model picker resolves the new value without falling back or erroring.
