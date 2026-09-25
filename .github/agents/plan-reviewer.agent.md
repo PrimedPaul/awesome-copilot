@@ -39,3 +39,12 @@ Return one of these exact verdict lines:
 - `Verdict: material concerns`
 
 For `Verdict: material concerns`, follow with `Findings:` and one or more numbered findings, each containing `Issue:`, `Evidence:`, and `Suggested fix:`. For `Verdict: no material concerns`, return the verdict alone. Do not claim the plan was checked when you could not assess the supplied context.
+
+Always end your response with a two-line footer the orchestrator forwards into the plan's `lifecycle` frontmatter (see `.github/fork-only/plans/README.md`):
+
+```text
+Lifecycle-Review: completed
+Reviewed-Plan-Hash: sha256:<hash>
+```
+
+Compute `<hash>` exactly the way `eng/validate-fork-plan-lifecycle.mjs` does: sha256 of the plan file's content **after** the closing `---` of its frontmatter, with line endings normalized. Only emit `Reviewed-Plan-Hash` when you return `Verdict: no material concerns` for that exact plan revision — if you returned `material concerns`, or you could not complete the review (missing inputs, dispatch truncation, etc.), set `Lifecycle-Review:` to a short reason instead of `completed` (for example `Lifecycle-Review: incomplete — missing decision record`) and omit `Reviewed-Plan-Hash`. The orchestrator treats anything other than `Lifecycle-Review: completed` as "not reviewed" for the approval gate.
