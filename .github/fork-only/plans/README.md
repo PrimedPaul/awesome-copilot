@@ -33,7 +33,13 @@ lifecycle:
     evidence: '<link to your /approve-plan comment>'
 ```
 
-`planHash` is the sha256 of the plan body (everything after the closing `---`), with line endings normalized. It pins the approval to an exact revision: if the plan changes afterward, the hash no longer matches and the check fails until you re-approve.
+`planHash` is the sha256 of the plan body (everything after the closing `---`), with CRLF line endings converted to LF and no other bytes changed. This preserves trailing blank lines, spaces, and whether the file ends with a newline. Generate the value with:
+
+```sh
+npm run fork:plan-hash -- .github/fork-only/plans/issue-<N>.md
+```
+
+Use the exact printed `sha256:<hex>` value in both the approval comment and `lifecycle.planHash`. It pins approval to an exact body revision: if the plan changes afterward, the hash no longer matches and the check fails until you re-review and re-approve.
 
 Your approval itself must be posted as a comment on the issue or the PR (not just an in-session confirmation), because that is the only durable, attributable record the CI check can verify:
 
@@ -49,5 +55,9 @@ Use `Review: waived` plus a `Reason:` line instead of `completed` if you are exp
 The check also governs `Refs #<N>` → `Fixes #<N>`: an implementation PR may only carry `Fixes #<N>` once the linked plan is `approved` with valid lifecycle evidence, and only if GitHub's own `closingIssuesReferences` for that PR agrees and no other open PR already closes the same issue.
 
 Plans are fork-only and are never promoted upstream.
+
+## Lifecycle tooling maintenance
+
+Changes limited to the lifecycle validator, its tests, its workflow, the related agents and documentation, `package.json`, or deletion of the old test plans `issue-53.md` and `issue-66.md` use the focused tooling-maintenance path. A maintainer must apply the `fork-lifecycle-maintenance` label. The validator checks every changed path against an explicit allowlist; adding any implementation-agent, plugin, skill, or active issue-plan change takes the PR out of maintenance mode and restores the normal issue/approval gates. The workflow runs the lifecycle regression tests on every applicable PR and reruns when the maintenance label is added or removed.
 
 The planner may only ever write `issue-*.md` in this directory — the workflow's `allowed-files` policy enforces it, so this README is out of its reach.

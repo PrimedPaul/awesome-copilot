@@ -7,6 +7,7 @@ import {
   parseApprovalComment,
   parsePlanContent,
   planHasOpenQuestions,
+  validateMaintenanceLabel,
   validateApprovalEvidence,
   validateClosingArmed,
   validatePlanDocument,
@@ -58,6 +59,13 @@ function buildApprovedPlan(overrides = {}) {
   return header + body;
 }
 
+test("computePlanHash normalizes CRLF but preserves trailing bytes", () => {
+  assert.equal(computePlanHash("body\r\n\r\n"), computePlanHash("body\n\n"));
+  assert.notEqual(computePlanHash("body"), computePlanHash("body\n"));
+  assert.notEqual(computePlanHash("body\n"), computePlanHash("body\n\n"));
+  assert.notEqual(computePlanHash("body\n"), computePlanHash("body \n"));
+});
+
 // --- extractIssueLink ---
 
 test("extractIssueLink accepts a Refs marker", () => {
@@ -105,14 +113,65 @@ test("classifyChangedPaths rejects fork-tooling leaks on an implementation PR", 
     66
   );
   assert.equal(result.mode, "implementation");
-  assert.equal(result.errors.length, 1);
-  assert.match(result.errors[0], /may only touch the matching plan file/);
+  assert.ok(result.errors.some((error) => /may only touch the matching plan file/.test(error)));
 });
 
 test("classifyChangedPaths flags unrelated changes", () => {
   const result = classifyChangedPaths(["README.md"], 66);
   assert.equal(result.mode, "unrelated");
-  assert.equal(result.errors.length, 1);
+  assert.deepEqual(result.errors, []);
+});
+
+test("classifyChangedPaths allows only lifecycle-maintenance paths in maintenance mode", () => {
+  const result = classifyChangedPaths(
+    [
+      "eng/validate-fork-plan-lifecycle.mjs",
+      ".github/workflows/fork-plan-lifecycle-check.yml",
+      ".github/fork-only/plans/README.md",
+    ],
+    null
+  );
+  assert.equal(result.mode, "maintenance");
+  assert.deepEqual(result.errors, []);
+});
+
+test("classifyChangedPaths rejects non-allowlisted files bundled with maintenance changes", () => {
+  const result = classifyChangedPaths(
+    ["eng/validate-fork-plan-lifecycle.mjs", "README.md"],
+    null
+  );
+  assert.equal(result.mode, "maintenance");
+  assert.ok(result.errors.some((error) => /explicit lifecycle maintenance allowlist/.test(error)));
+});
+
+test("classifyChangedPaths allows legacy test plans only when deleted", () => {
+  const plan = ".github/fork-only/plans/issue-53.md";
+  assert.equal(classifyChangedPaths([plan], null).mode, "planning");
+  assert.equal(classifyChangedPaths([plan], null, [plan]).mode, "maintenance");
+});
+
+test("classifyChangedPaths does not permit implementation changes through maintenance mode", () => {
+  const result = classifyChangedPaths(
+    [
+      "eng/validate-fork-plan-lifecycle.mjs",
+      "agents/oracle-to-postgres-migration-expert.agent.md",
+    ],
+    null
+  );
+  assert.equal(result.mode, "implementation");
+  assert.ok(result.errors.some((error) => /must not bundle lifecycle tooling changes/.test(error)));
+});
+
+test("validateMaintenanceLabel requires the dedicated label only in maintenance mode", () => {
+  assert.equal(validateMaintenanceLabel({ mode: "maintenance", labels: [] }).length, 1);
+  assert.deepEqual(
+    validateMaintenanceLabel({
+      mode: "maintenance",
+      labels: ["fork-lifecycle-maintenance"],
+    }),
+    []
+  );
+  assert.deepEqual(validateMaintenanceLabel({ mode: "implementation", labels: [] }), []);
 });
 
 // --- planHasOpenQuestions ---
@@ -256,7 +315,10 @@ test("parseApprovalComment throws when the issue line is missing", () => {
 
 test("validateApprovalEvidence accepts a matching owner comment", () => {
   const errors = validateApprovalEvidence({
-    lifecycle: { approval: { status: "approved" } },
+    lifecycle: {
+      approval: { status: "approved" },
+      review: { status: "completed" },
+    },
     planHash: "sha256:abc123",
     issueNumber: 66,
     comments: [
@@ -269,7 +331,10 @@ test("validateApprovalEvidence accepts a matching owner comment", () => {
 
 test("validateApprovalEvidence rejects an approval comment from a non-owner", () => {
   const errors = validateApprovalEvidence({
-    lifecycle: { approval: { status: "approved" } },
+    lifecycle: {
+      approval: { status: "approved" },
+      review: { status: "completed" },
+    },
     planHash: "sha256:abc123",
     issueNumber: 66,
     comments: [
@@ -282,7 +347,10 @@ test("validateApprovalEvidence rejects an approval comment from a non-owner", ()
 
 test("validateApprovalEvidence rejects a hash mismatch", () => {
   const errors = validateApprovalEvidence({
-    lifecycle: { approval: { status: "approved" } },
+    lifecycle: {
+      approval: { status: "approved" },
+      review: { status: "completed" },
+    },
     planHash: "sha256:current",
     issueNumber: 66,
     comments: [
@@ -299,6 +367,57 @@ test("validateApprovalEvidence is a no-op when the plan is not approved", () => 
     planHash: "sha256:abc123",
     issueNumber: 66,
     comments: [],
+    ownerLogin: "maintainer",
+  });
+  assert.deepEqual(errors, []);
+});
+
+test("validateApprovalEvidence rejects a completed comment for a waived review", () => {
+  const errors = validateApprovalEvidence({
+    lifecycle: {
+      approval: { status: "approved" },
+      review: { status: "waived" },
+    },
+    planHash: "sha256:abc123",
+    issueNumber: 66,
+    comments: [
+      { author: "maintainer", body: "/approve-plan\nIssue: #66\nPlan-Hash: sha256:abc123\nReview: completed\n" },
+    ],
+    ownerLogin: "maintainer",
+  });
+  assert.ok(errors.some((error) => /No valid \/approve-plan comment/.test(error)));
+});
+
+test("validateApprovalEvidence rejects a waived comment for a completed review", () => {
+  const errors = validateApprovalEvidence({
+    lifecycle: {
+      approval: { status: "approved" },
+      review: { status: "completed" },
+    },
+    planHash: "sha256:abc123",
+    issueNumber: 66,
+    comments: [
+      { author: "maintainer", body: "/approve-plan\nIssue: #66\nPlan-Hash: sha256:abc123\nReview: waived\nReason: skipped\n" },
+    ],
+    ownerLogin: "maintainer",
+  });
+  assert.ok(errors.some((error) => /No valid \/approve-plan comment/.test(error)));
+});
+
+test("validateApprovalEvidence accepts a matching waived review with a reason", () => {
+  const errors = validateApprovalEvidence({
+    lifecycle: {
+      approval: { status: "approved" },
+      review: { status: "waived", evidence: "Minor wording change; review waived." },
+    },
+    planHash: "sha256:abc123",
+    issueNumber: 66,
+    comments: [
+      {
+        author: "maintainer",
+        body: "/approve-plan\nIssue: #66\nPlan-Hash: sha256:abc123\nReview: waived\nReason: Minor wording change\n",
+      },
+    ],
     ownerLogin: "maintainer",
   });
   assert.deepEqual(errors, []);

@@ -24,6 +24,7 @@ import { ROOT_FOLDER } from "./constants.mjs";
 const FORK_ONLY_DIR = path.join(ROOT_FOLDER, ".github", "fork-only");
 const PLANS_DIR = path.join(FORK_ONLY_DIR, "plans");
 const LIFECYCLE_SCHEMA_VERSION = 1;
+const MAINTENANCE_LABEL = "fork-lifecycle-maintenance";
 
 const VALID_STATUSES = new Set(["draft", "approved"]);
 const VALID_REQUIREMENTS_STATUSES = new Set(["answered", "unanswered"]);
@@ -42,6 +43,21 @@ const IMPLEMENTATION_PATH_PATTERNS = [
   /^plugins\/oracle-to-postgres-migration-expert\//,
   /^skills\/[^/]*oracle-to-postgres[^/]*\//,
 ];
+
+const MAINTENANCE_PATHS = new Set([
+  ".github/agents/dev-orchestrator.agent.md",
+  ".github/agents/plan-reviewer.agent.md",
+  ".github/fork-only/README.md",
+  ".github/fork-only/plans/README.md",
+  ".github/workflows/fork-plan-lifecycle-check.yml",
+  "eng/validate-fork-plan-lifecycle.mjs",
+  "eng/validate-fork-plan-lifecycle.test.mjs",
+  "package.json",
+]);
+const LEGACY_PLAN_PATHS = new Set([
+  ".github/fork-only/plans/issue-53.md",
+  ".github/fork-only/plans/issue-66.md",
+]);
 
 /**
  * Split a plan file's raw content into frontmatter text and body text.
@@ -62,7 +78,7 @@ function splitFrontmatter(content) {
  * @returns {string} Hash string prefixed with "sha256:".
  */
 function computePlanHash(body) {
-  const normalized = body.replace(/\r\n/g, "\n").replace(/\s+$/, "\n");
+  const normalized = body.replace(/\r\n/g, "\n");
   const digest = crypto.createHash("sha256").update(normalized, "utf8").digest("hex");
   return `sha256:${digest}`;
 }
@@ -121,24 +137,50 @@ function extractIssueLink(prBody) {
  * @param {number} issueNumber - Tracking issue number from the PR body marker.
  * @returns {{mode: ("planning"|"implementation"|"unrelated"), planFile: string, errors: string[]}}
  */
-function classifyChangedPaths(changedFiles, issueNumber) {
+function classifyChangedPaths(changedFiles, issueNumber, deletedFiles = []) {
   const errors = [];
-  const planRelative = `.github/fork-only/plans/issue-${issueNumber}.md`;
   const normalized = changedFiles.map((f) => f.replace(/\\/g, "/"));
+  const normalizedDeleted = new Set(deletedFiles.map((f) => f.replace(/\\/g, "/")));
 
-  const hasPlanChange = normalized.includes(planRelative);
+  const planRelative = issueNumber === null
+    ? null
+    : `.github/fork-only/plans/issue-${issueNumber}.md`;
+  const hasPlanChange = planRelative === null
+    ? normalized.some((f) => /^\.github\/fork-only\/plans\/issue-\d+\.md$/.test(f))
+    : normalized.includes(planRelative);
   const hasImplementationChange = normalized.some((f) =>
     IMPLEMENTATION_PATH_PATTERNS.some((pattern) => pattern.test(f))
   );
+  const hasMaintenancePath = normalized.some(
+    (f) => MAINTENANCE_PATHS.has(f) ||
+      (LEGACY_PLAN_PATHS.has(f) && normalizedDeleted.has(f))
+  );
+  const isMaintenanceOnly =
+    normalized.length > 0 &&
+    normalized.every((f) =>
+      MAINTENANCE_PATHS.has(f) ||
+      (LEGACY_PLAN_PATHS.has(f) && normalizedDeleted.has(f))
+    );
   const forkToolingLeaks = normalized.filter(
     (f) => f.startsWith(".github/fork-only/") && f !== planRelative
   );
 
   let mode = "unrelated";
-  if (hasImplementationChange) {
+  if (isMaintenanceOnly) {
+    mode = "maintenance";
+  } else if (hasImplementationChange) {
     mode = "implementation";
   } else if (hasPlanChange) {
     mode = "planning";
+  } else if (hasMaintenancePath) {
+    mode = "maintenance";
+    errors.push(
+      "Tooling-maintenance PRs may only change files in the explicit lifecycle maintenance allowlist."
+    );
+  }
+
+  if (mode === "maintenance") {
+    return { mode, planFile: null, errors };
   }
 
   if (mode === "implementation" && forkToolingLeaks.length > 0) {
@@ -147,13 +189,31 @@ function classifyChangedPaths(changedFiles, issueNumber) {
         `also found changes to: ${forkToolingLeaks.join(", ")}.`
     );
   }
-  if (mode === "unrelated") {
+  if (mode === "implementation" && hasMaintenancePath) {
     errors.push(
-      `No changes found under the implementation surface or ${planRelative}; nothing for the lifecycle check to validate.`
+      "Implementation PRs must not bundle lifecycle tooling changes; split tooling maintenance into a separately labeled PR."
     );
+  }
+  if (mode === "planning" && hasMaintenancePath) {
+    errors.push(
+      "Plan-only PRs must not bundle lifecycle tooling changes; split tooling maintenance into a separately labeled PR."
+    );
+  }
+  if (mode === "unrelated") {
+    return { mode, planFile: null, errors };
   }
 
   return { mode, planFile: planRelative, errors };
+}
+
+function validateMaintenanceLabel({ mode, labels }) {
+  if (mode !== "maintenance" || labels.includes(MAINTENANCE_LABEL)) {
+    return [];
+  }
+  return [
+    `Tooling-only changes require the "${MAINTENANCE_LABEL}" PR label. ` +
+      "This label is limited to the lifecycle maintenance allowlist; focused regression tests run in CI.",
+  ];
 }
 
 /**
@@ -346,7 +406,11 @@ function validateApprovalEvidence({ lifecycle, planHash, issueNumber, comments, 
     }
     if (!parsed) continue;
     if (comment.author !== ownerLogin) continue;
-    if (parsed.issue === issueNumber && parsed.hash === planHash) {
+    if (
+      parsed.issue === issueNumber &&
+      parsed.hash === planHash &&
+      parsed.review === lifecycle.review?.status
+    ) {
       matching.push(parsed);
     }
   }
@@ -401,6 +465,22 @@ function validateClosingArmed({
 
 async function main() {
   const errors = [];
+  if (process.argv[2] === "--hash") {
+    const planPath = process.argv[3];
+    if (!planPath) {
+      console.error("Usage: npm run fork:plan-hash -- <plan-file>");
+      process.exit(2);
+    }
+    const { frontmatter, body } = parsePlanContent(
+      fs.readFileSync(path.resolve(ROOT_FOLDER, planPath), "utf8")
+    );
+    if (!frontmatter) {
+      throw new Error(`Plan file has no YAML frontmatter: ${planPath}`);
+    }
+    console.log(computePlanHash(body));
+    return;
+  }
+
   const eventPath = process.env.GITHUB_EVENT_PATH;
   if (!eventPath || !fs.existsSync(eventPath)) {
     console.error("::error::GITHUB_EVENT_PATH is not set; this script must run inside a pull_request workflow.");
@@ -420,26 +500,49 @@ async function main() {
   const headSha = pr.head?.sha;
 
   let changedFiles = [];
+  let deletedFiles = [];
   try {
-    const output = execFileSync("git", ["diff", "--name-only", `${baseSha}...${headSha}`], {
+    const output = execFileSync("git", ["diff", "--name-status", `${baseSha}...${headSha}`], {
       cwd: ROOT_FOLDER,
       encoding: "utf8",
     });
-    changedFiles = output.split("\n").map((l) => l.trim()).filter(Boolean);
+    const diffEntries = output.split("\n").map((line) => line.trim().split(/\s+/)).filter((parts) => parts.length >= 2);
+    changedFiles = diffEntries.map((parts) => parts.at(-1));
+    deletedFiles = diffEntries
+      .filter((parts) => parts[0] === "D")
+      .map((parts) => parts.at(-1));
   } catch (error) {
     errors.push(`Failed to compute changed files via git diff: ${error.message}`);
   }
-
-  const { keyword, issue: issueNumber, errors: linkErrors } = extractIssueLink(prBody);
-  errors.push(...linkErrors);
-
-  if (issueNumber === null) {
+  if (errors.length > 0) {
     reportAndExit(errors);
     return;
   }
 
-  const { mode, planFile, errors: classifyErrors } = classifyChangedPaths(changedFiles, issueNumber);
+  const { keyword, issue: issueNumber, errors: linkErrors } = extractIssueLink(prBody);
+  const { mode, planFile, errors: classifyErrors } = classifyChangedPaths(
+    changedFiles,
+    issueNumber,
+    deletedFiles
+  );
   errors.push(...classifyErrors);
+
+  if (mode === "maintenance") {
+    const labels = (pr.labels || []).map((label) => label.name);
+    errors.push(...validateMaintenanceLabel({ mode, labels }));
+    reportAndExit(errors);
+    return;
+  }
+  if (mode === "unrelated") {
+    console.log("ℹ️ Fork plan lifecycle check not applicable to these changed paths.");
+    return;
+  }
+
+  errors.push(...linkErrors);
+  if (issueNumber === null) {
+    reportAndExit(errors);
+    return;
+  }
 
   const planPath = path.join(ROOT_FOLDER, planFile);
   if (!fs.existsSync(planPath)) {
@@ -551,7 +654,18 @@ function fetchClosingIssuesReferences({ owner, repo, prNumber }) {
 function fetchOtherOpenPrsClosingIssue({ owner, repo, issueNumber, prNumber }) {
   const output = execFileSync(
     "gh",
-    ["pr", "list", "--repo", `${owner}/${repo}`, "--state", "open", "--json", "number,closingIssuesReferences"],
+    [
+      "pr",
+      "list",
+      "--repo",
+      `${owner}/${repo}`,
+      "--state",
+      "open",
+      "--limit",
+      "1000",
+      "--json",
+      "number,closingIssuesReferences",
+    ],
     { encoding: "utf8" }
   );
   const parsed = JSON.parse(output);
@@ -571,11 +685,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 export {
   PLANS_DIR,
   LIFECYCLE_SCHEMA_VERSION,
+  MAINTENANCE_LABEL,
   splitFrontmatter,
   computePlanHash,
   parsePlanContent,
   extractIssueLink,
   classifyChangedPaths,
+  validateMaintenanceLabel,
   planHasOpenQuestions,
   validatePlanDocument,
   parseApprovalComment,

@@ -57,43 +57,39 @@ You are a structured development workflow coordinator. Your job: take a GitHub i
 
 6. Revise the advisory seed into a concrete plan using the answers you reconciled in Phase 1; if no seed exists, draft the plan yourself. Older seed plans may contain a *Skeptic's report*; treat it as historical context, not a required gate. Rewrite `.github/fork-only/plans/issue-<N>.md` in place (create it if the planner never ran) with:
    - A `## Decision record` section listing every open question, the maintainer's chosen answer, and a link to the issue comment it came from. Every question the seed raised must appear here with an answer — an unanswered one means you should have stopped in Phase 1.
-   - `status: draft` in the frontmatter. Keep it `draft` while you collect answers and through the whole review phase. Do not add a `lifecycle` block yet — it is only written once every gate in step 7 has actually passed.
-
-7. **The approval gate is enforced by `.github/workflows/fork-plan-lifecycle-check.yml`, not just these instructions.** Set `status: approved` only when all of these have happened, in order:
-   1. every open question has an evidenced answer in the decision record;
-   2. the Plan Reviewer returned a valid verdict, or the maintainer explicitly waived the review after a dispatch failure;
-   3. the maintainer separately approved the revised plan, and posted that approval as a comment (see below) rather than only confirming it in this session.
-
-   Answering the questions is **not** approval, and a clean reviewer verdict is **not** approval. Never set `status: approved` on the maintainer's behalf, pre-emptively, or as part of the same step that writes the revised plan.
-
-   When all three have genuinely happened:
-   - Compute the plan's hash: `sha256sum` (or equivalent) over everything in `.github/fork-only/plans/issue-<N>.md` **after** the closing `---` of the frontmatter, with the result formatted as `sha256:<hex digest>`. Show this hash to the maintainer.
-   - Ask the maintainer to post a comment on the issue or the PR containing exactly:
-     ```text
-     /approve-plan
-     Issue: #<N>
-     Plan-Hash: sha256:<the hash you just computed>
-     Review: completed
-     ```
-     (or `Review: waived` plus a `Reason:` line if step 7.2 was an explicit waiver). Do not fabricate or paraphrase this comment on the maintainer's behalf — it must be their own GitHub comment for `fork-plan-lifecycle-check.yml` to accept it.
-   - Only after that comment exists, write the plan's `lifecycle` frontmatter block (`schema: 1`, `planHash`, `requirements.status: answered`, `review.status`/`verdict`/`evidence`, `approval.status: approved`/`approver`/`evidence` linking to the comment) and set `status: approved`. See `.github/fork-only/plans/README.md` for the exact schema.
-   - Run `npm run fork:lifecycle` locally is not meaningful yet (it needs a PR context); it becomes the gate in step 13.
+   - `status: draft` in the frontmatter. Keep it `draft` while you collect answers and through the whole review and approval phase. Do not add a `lifecycle` block yet.
 
 ### Phase 3: Rubber-Duck Review
 
-8. Dispatch the **Plan Reviewer** sub-agent (`.github/agents/plan-reviewer.agent.md`) using the `agent` tool. Supply the **revised** plan, issue, relevant repository files, the decision record with its issue-comment evidence, and applicable constraints. Wait for its response and require either `Verdict: no material concerns` or `Verdict: material concerns`; the latter must include `Findings:` with an issue, evidence, and suggested fix for each finding. It also returns a `Lifecycle-Review:` line (`completed` or a reason it could not complete) and, when `no material concerns`, a `Reviewed-Plan-Hash:` matching the plan's current hash — carry that hash forward into the `lifecycle.review.evidence`/`planHash` you write in step 7. Incorporate valid findings into the plan before seeking approval; do not leave a contradiction between the review and the plan. If dispatch fails or the result does not meet this contract, report that the plan is **not reviewed** and ask the user whether to retry or explicitly proceed without review. Never silently skip this checkpoint or describe an unreviewed plan as reviewed.
+7. Compute the draft plan's body hash with `npm run fork:plan-hash -- .github/fork-only/plans/issue-<N>.md`. Dispatch the **Plan Reviewer** sub-agent (`.github/agents/plan-reviewer.agent.md`) using the `agent` tool. Supply the **revised** plan, its exact path and hash, issue, relevant repository files, the decision record with its issue-comment evidence, and applicable constraints. Wait for its response and require either `Verdict: no material concerns` or `Verdict: material concerns`; the latter must include `Findings:` with an issue, evidence, and suggested fix for each finding. It also returns a `Lifecycle-Review:` line (`completed` or a reason it could not complete) and, when `no material concerns`, a `Reviewed-Plan-Hash:` matching the plan body's current hash. Incorporate valid findings into the plan before seeking approval; if you change the body after review, dispatch the reviewer again for that exact revision. If dispatch fails or the result does not meet this contract, report that the plan is **not reviewed** and ask the user whether to retry or explicitly proceed without review. Never silently skip this checkpoint or describe an unreviewed plan as reviewed.
 
-9. Present the revised plan, the decision record, the review verdict, and any material findings to the user for approval. Ask for approval explicitly; do not infer it. If the user explicitly chose to proceed without review, say so instead of claiming a verdict.
+8. Present the revised plan, the decision record, the review verdict, and any material findings to the user. Ask explicitly whether to approve the plan. Do not infer approval from answered questions, a clean reviewer verdict, or plan-mode approval alone. If the user explicitly chooses to proceed without review after a dispatch/result failure, record the waiver and reason; do not claim a reviewer verdict.
 
-### Phase 4: Implement (After Approval)
+### Phase 4: Durable Approval Gate
 
-10. Once the user approves via plan-mode gating, set `status: approved` per step 7 and implement the changes:
+9. **The approval gate is enforced by `.github/workflows/fork-plan-lifecycle-check.yml`, not just these instructions.** Keep `status: draft` until every gate has passed: requirements answered with evidence in the decision record; review completed for the exact plan revision or explicitly waived; and explicit maintainer approval.
+   - After the user explicitly approves, compute the plan body's hash using `npm run fork:plan-hash -- .github/fork-only/plans/issue-<N>.md`. This hashes everything after the closing `---`, converts CRLF to LF, and preserves all other bytes. Show the resulting `sha256:<hex>` value to the maintainer.
+   - Ask the maintainer to post a comment on the issue or PR containing exactly:
+     ```text
+     /approve-plan
+     Issue: #<N>
+     Plan-Hash: sha256:<the hash just computed>
+     Review: completed
+     ```
+     (or `Review: waived` plus a `Reason:` line if the reviewer was explicitly waived). Do not create or paraphrase this comment on the maintainer's behalf.
+   - Read back the comment and verify it was authored by the repository owner and that its issue, plan hash, and review state match. A session-only approval is not durable evidence.
+   - Only then write the lifecycle frontmatter (`schema: 1`, `planHash`, `requirements.status: answered`, `review.status`/`verdict`/`evidence`, `approval.status: approved`/`approver`/`evidence` linking to the comment) and set `status: approved`. See `.github/fork-only/plans/README.md` for the exact schema.
+   - If any check fails or the comment is absent/mismatched, leave the plan as `draft`; report what is missing and stop before implementation.
+
+### Phase 5: Implement (After Durable Approval)
+
+10. Only after step 9 has written a valid approved lifecycle block, implement the changes:
    - Edit the agent file, plugin files, and/or skill folders per the plan
    - Bump `version` in `plugins/oracle-to-postgres-migration-expert/plugin.json` (semver: patch for wording fixes, minor for new capabilities or skills, major for behaviour-breaking changes). Upstream promotion is blocked until this differs from upstream `main`.
    - Run `npm run build` and `bash eng/fix-line-endings.sh`; include the regenerated `README.md`, `docs/README.*.md`, and `.github/plugin/marketplace.json` in the same commit
    - Commit with a clear message and push to the current branch
 
-### Phase 5: Pre-PR Self-Review
+### Phase 6: Pre-PR Self-Review
 
 11. After implementation, run a domain-aware code review:
    - Check structural correctness (front matter, formatting) with `npm run skill:validate` and `npm run plugin:validate`
@@ -110,7 +106,7 @@ You are a structured development workflow coordinator. Your job: take a GitHub i
    - [ ] `npm run skill:validate` and `npm run plugin:validate` pass
    - [ ] Nothing changed outside the agent/plugin/skill paths and `.github/fork-only/plans/issue-<N>.md` — in particular no workflow, and nothing else under `.github/fork-only/`. The plan file stays in the fork; the bundler only promotes the agent paths, so it never reaches upstream.
 
-### Phase 6: Arm Native Issue Closure
+### Phase 7: Arm Native Issue Closure
 
 13. Only after Phases 1–5 are complete, update the implementation PR so GitHub closes the issue when that PR merges:
    - Re-check that the plan is `status: approved` with a complete `lifecycle` block, every open question has an evidenced answer, review completed or was explicitly waived, implementation is committed and pushed, and all required validation passed.
