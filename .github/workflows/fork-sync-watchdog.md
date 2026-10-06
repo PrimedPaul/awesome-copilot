@@ -90,8 +90,12 @@ jobs:
       - name: Push upstream mirror branch
         if: steps.diff.outputs.has_changes == 'true'
         run: |
+          # This branch is an upstream mirror; refresh divergence, but reject concurrent updates.
+          MIRROR_REF=$(git ls-remote origin refs/heads/fork-sync/upstream)
+          MIRROR_SHA=$(printf '%s' "$MIRROR_REF" | cut -f1)
+          echo "::notice::Refreshing upstream mirror from ${MIRROR_SHA:-<absent>} to $(git rev-parse upstream/main)."
           # Upstream routinely changes .github/workflows/*; pushing those needs the PAT to have the `workflow` scope.
-          if ! git push --quiet origin upstream/main:refs/heads/fork-sync/upstream 2> push.err; then
+          if ! git push --quiet --force-with-lease="refs/heads/fork-sync/upstream:$MIRROR_SHA" origin upstream/main:refs/heads/fork-sync/upstream 2> push.err; then
             cat push.err
             if grep -q "workflow" push.err; then
               echo "::error::FORK_AUTOMATION_PAT lacks the 'workflow' scope. Edit the classic PAT, tick 'workflow', and update the repository secret (see .github/fork-only/README.md)."
@@ -109,7 +113,7 @@ jobs:
           EXISTING=$(gh pr list --repo "$GITHUB_REPOSITORY" --head fork-sync/upstream --base main --state open --json number --jq '.[0].number // empty')
           if [ -n "$EXISTING" ]; then
             echo "pr_number=$EXISTING" >> "$GITHUB_OUTPUT"
-            echo "::notice::Reusing open sync PR #$EXISTING (branch fast-forwarded)."
+            echo "::notice::Reusing open sync PR #$EXISTING (mirror refreshed)."
             exit 0
           fi
 
