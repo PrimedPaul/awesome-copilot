@@ -13,6 +13,8 @@ concurrency:
   group: fork-sync-watchdog
   cancel-in-progress: false
 timeout-minutes: 15
+checkout:
+  fetch-depth: 0
 network:
   allowed:
     - defaults
@@ -173,6 +175,8 @@ The fork exists to develop one custom agent — `agents/oracle-to-postgres-migra
    - `git remote add upstream https://github.com/github/awesome-copilot.git && git fetch --quiet upstream main`
    - `git log --oneline origin/main..upstream/main` to list incoming commits
    - `git diff --stat origin/main...upstream/main` for the change footprint
+   - `git merge-base origin/main upstream/main` — this must print a commit. If it prints nothing, run `git fetch --quiet --unshallow origin` (or `git fetch --quiet --depth=100000 origin main upstream main`) and retry. Never conclude there is "no merge base" without doing this, and never fall back to a two-dot tree diff: it reports every fork-only file as a deletion.
+   - Fork-only files (`.github/fork-only/**`, `.github/workflows/fork-*`, `.github/agents/dev-orchestrator.agent.md`, `.github/agents/plan-reviewer.agent.md`, `eng/*fork*`) are not touched by a merge commit, so do not report them as deleted. Only report a conflict if `git merge-tree --write-tree --name-only origin/main upstream/main` exits non-zero, and list the conflicted paths it prints.
 2. If the guideline list above is non-empty, run `git diff origin/main...upstream/main -- CONTRIBUTING.md AGENTS.md` and read the full diff.
 3. For each **added** workflow file, read the whole file (`git show upstream/main:<file>`): its triggers (`on:`), `permissions:`, any `secrets.*` it references, and what it does.
 4. For each **modified** workflow file, read the diff (`git diff origin/main...upstream/main -- <file>`) and judge whether the change matters to a fork that has it enabled.
