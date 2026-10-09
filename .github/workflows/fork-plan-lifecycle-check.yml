@@ -1,0 +1,125 @@
+# Fork-only. Deterministically enforces the plan approval lifecycle documented
+# in .github/fork-only/plans/README.md: an approved plan must carry
+# machine-readable lifecycle evidence (requirements answered, review
+# completed/waived, maintainer /approve-plan comment matching a content hash),
+# and "Fixes #N" may only be armed on an implementation PR once that evidence
+# checks out and GitHub itself reports the closing reference. Never proposed
+# upstream itself.
+name: Fork Plan Lifecycle Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+    branches: [main]
+    paths:
+      - ".github/fork-only/plans/**"
+      - ".github/fork-only/README.md"
+      - ".github/agents/dev-orchestrator.agent.md"
+      - ".github/agents/plan-reviewer.agent.md"
+      - ".github/workflows/fork-issue-planner.md"
+      - ".github/workflows/fork-issue-planner.lock.yml"
+      - "agents/oracle-to-postgres-migration-expert.agent.md"
+      - "plugins/oracle-to-postgres-migration-expert/**"
+      - "skills/*oracle-to-postgres*/**"
+      - "eng/validate-fork-plan-lifecycle.mjs"
+      - "eng/validate-fork-plan-lifecycle.test.mjs"
+      - "package.json"
+      - ".github/workflows/fork-plan-lifecycle-check.yml"
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: write
+
+jobs:
+  lifecycle-check:
+    name: Plan approval lifecycle validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate plan approval lifecycle
+        id: validate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run fork:lifecycle
+
+      - name: Run lifecycle validator tests
+        id: tests
+        if: always()
+        run: npm run fork:lifecycle:test
+
+      - name: Manage validation summary on PR
+        if: always()
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        with:
+          script: |
+            const marker = '<!-- fork-plan-lifecycle-check -->';
+            const validationOutcome = '${{ steps.validate.outcome }}';
+            const testsOutcome = '${{ steps.tests.outcome }}';
+            const validationFailed = validationOutcome === 'failure' || testsOutcome === 'failure';
+            const validationPassed = validationOutcome === 'success' && testsOutcome === 'success';
+            const body = [
+              marker,
+              '🛑 **Plan approval lifecycle check failed**',
+              '',
+              'This PR does not satisfy the approval lifecycle in `.github/fork-only/plans/README.md`.',
+              'Common causes:',
+              '- The PR body is missing (or has both) a `Refs #N` / `Fixes #N` line.',
+              '- An implementation PR touches something outside the agent/plugin/skills surface and its matching plan file.',
+              '- The plan is `status: approved` but its `lifecycle` frontmatter block is missing or incomplete.',
+              '- `lifecycle.planHash` does not match the plan\'s current content (re-approve after edits).',
+              '- No matching `/approve-plan` comment from the repository owner was found on the issue or PR.',
+              '- `Fixes #N` was used before the plan was approved, or GitHub does not report this PR as closing the issue.',
+              '- Tooling-only changes need the `fork-lifecycle-maintenance` label and must stay within the lifecycle maintenance allowlist.',
+              '- Lifecycle validator regression tests failed.',
+              '',
+              'Run `npm run fork:lifecycle` and `npm run fork:lifecycle:test` locally against this branch to see the full results.',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+
+            const existing = comments.find((comment) => comment.body.includes(marker));
+
+            if (validationFailed && existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+              console.log(`Updated existing validation comment ${existing.id}`);
+            } else if (validationFailed) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+              console.log('Created validation comment');
+            } else if (validationPassed && existing) {
+              await github.rest.issues.deleteComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+              });
+              console.log(`Deleted stale validation comment ${existing.id}`);
+            }
