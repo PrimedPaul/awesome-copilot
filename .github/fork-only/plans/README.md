@@ -1,10 +1,10 @@
 # Plans
 
-One file per issue: `issue-<N>.md`, written by the **Fork Issue Planner** workflow (`.github/workflows/fork-issue-planner.md`) when the repository owner opens an issue.
+One file per issue: `issue-<N>-<short-slug>.md`, written by the **Fork Issue Planner** workflow (`.github/workflows/fork-issue-planner.md`) when the repository owner opens an issue. The issue number is the stable identifier; the short lowercase hyphenated slug is for readability.
 
 Each plan is an **advisory seed** — a first-round grilling, implementation plan, acceptance criteria, `Q<n>`-numbered open questions, and verification steps produced without human input. It is not a contract, and it is always written with `status: draft`.
 
-Answer the open questions **on the issue** — that is the canonical channel for requirements, and the plan PR is for reviewing the plan and the implementation diff. Then check out the matching `plan/issue-<N>` branch and run the Development Orchestrator agent (`/agent` → `.github/agents/dev-orchestrator.agent.md`). It refuses to continue while any question is unanswered, records the answers in a `## Decision record` section with links to the issue comments, revises the plan, and dispatches `.github/agents/plan-reviewer.agent.md` for a concrete review verdict before asking for approval. If the reviewer cannot run or return a valid verdict, you must choose whether to retry or proceed without review. Older plans may contain a skeptic's report; that is historical context, not a required gate.
+Answer the open questions **on the issue** — that is the canonical channel for requirements, and the plan PR is for reviewing the plan and the implementation diff. Then check out the matching `plan/issue-<N>-<short-slug>` branch (use the exact branch named in the issue comment) and run the Development Orchestrator agent (`/agent` → `.github/agents/dev-orchestrator.agent.md`). It resolves the unique plan filename for the issue, refuses to continue while any question is unanswered, records the answers in a `## Decision record` section with links to the issue comments, revises the plan, and dispatches `.github/agents/plan-reviewer.agent.md` for a concrete review verdict before asking for approval. If the reviewer cannot run or return a valid verdict, you must choose whether to retry or proceed without review.
 
 `status` goes to `approved` only after all three gates pass: every question answered, the review completed or explicitly waived, and your approval given. Answering the questions is not approval, and neither is a clean reviewer verdict.
 
@@ -36,7 +36,7 @@ lifecycle:
 `planHash` is the sha256 of the plan body (everything after the closing `---`), with CRLF line endings converted to LF and no other bytes changed. This preserves trailing blank lines, spaces, and whether the file ends with a newline. Generate the value with:
 
 ```sh
-npm run fork:plan-hash -- .github/fork-only/plans/issue-<N>.md
+npm run fork:plan-hash -- .github/fork-only/plans/issue-<N>-<short-slug>.md
 ```
 
 Use the exact printed `sha256:<hex>` value in both the approval comment and `lifecycle.planHash`. It pins approval to an exact body revision: if the plan changes afterward, the hash no longer matches and the check fails until you re-review and re-approve.
@@ -58,6 +58,6 @@ Plans are fork-only and are never promoted upstream.
 
 ## Lifecycle tooling maintenance
 
-Changes limited to the lifecycle validator, its tests, its workflow, the related agents and documentation, `package.json`, or deletion of the old test plans `issue-53.md` and `issue-66.md` use the focused tooling-maintenance path. A maintainer must apply the `fork-lifecycle-maintenance` label. The validator checks every changed path against an explicit allowlist; adding any implementation-agent, plugin, skill, or active issue-plan change takes the PR out of maintenance mode and restores the normal issue/approval gates. The workflow runs the lifecycle regression tests on every applicable PR and reruns when the maintenance label is added or removed.
+Changes limited to the lifecycle validator, its tests, its workflow, the planner workflow and compiled lock file, the related agents and documentation, and `package.json` use the focused tooling-maintenance path. A maintainer must apply the `fork-lifecycle-maintenance` label. The validator checks every changed path against an explicit allowlist; adding any implementation-agent, plugin, skill, or active issue-plan change takes the PR out of maintenance mode and restores the normal issue/approval gates. The workflow runs the lifecycle regression tests on every applicable PR and reruns when the maintenance label is added or removed.
 
-The planner may only ever write `issue-*.md` in this directory — the workflow's `allowed-files` policy enforces it, so this README is out of its reach.
+The planner may only ever write `issue-*.md` in this directory — the workflow's `allowed-files` policy enforces it, so this README is out of its reach. When rerunning, it reuses the existing filename and branch; if multiple plan files match an issue, it stops rather than choosing one.

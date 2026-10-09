@@ -49,16 +49,13 @@ const MAINTENANCE_PATHS = new Set([
   ".github/agents/plan-reviewer.agent.md",
   ".github/fork-only/README.md",
   ".github/fork-only/plans/README.md",
+  ".github/workflows/fork-issue-planner.md",
+  ".github/workflows/fork-issue-planner.lock.yml",
   ".github/workflows/fork-plan-lifecycle-check.yml",
   "eng/validate-fork-plan-lifecycle.mjs",
   "eng/validate-fork-plan-lifecycle.test.mjs",
   "package.json",
 ]);
-const LEGACY_PLAN_PATHS = new Set([
-  ".github/fork-only/plans/issue-53.md",
-  ".github/fork-only/plans/issue-66.md",
-]);
-
 /**
  * Split a plan file's raw content into frontmatter text and body text.
  * @param {string} content - Raw file contents.
@@ -137,30 +134,34 @@ function extractIssueLink(prBody) {
  * @param {number} issueNumber - Tracking issue number from the PR body marker.
  * @returns {{mode: ("planning"|"implementation"|"unrelated"), planFile: string, errors: string[]}}
  */
-function classifyChangedPaths(changedFiles, issueNumber, deletedFiles = []) {
+function classifyChangedPaths(changedFiles, issueNumber, planFiles = changedFiles) {
   const errors = [];
   const normalized = changedFiles.map((f) => f.replace(/\\/g, "/"));
-  const normalizedDeleted = new Set(deletedFiles.map((f) => f.replace(/\\/g, "/")));
+  const normalizedPlanFiles = planFiles.map((f) => f.replace(/\\/g, "/"));
 
+  const issuePlanPattern = issueNumber === null
+    ? /^\.github\/fork-only\/plans\/issue-\d+-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/
+    : new RegExp(`^\\.github/fork-only/plans/issue-${issueNumber}-[a-z0-9]+(?:-[a-z0-9]+)*\\.md$`);
+  const matchingPlanFiles = issueNumber === null
+    ? []
+    : normalizedPlanFiles.filter((f) => issuePlanPattern.test(f));
+  if (matchingPlanFiles.length > 1) {
+    errors.push(
+      `Found multiple plan files for issue #${issueNumber}: ${matchingPlanFiles.join(", ")}. Keep exactly one plan file per issue.`
+    );
+  }
+  const changedPlanFiles = normalized.filter((f) => issuePlanPattern.test(f));
   const planRelative = issueNumber === null
     ? null
-    : `.github/fork-only/plans/issue-${issueNumber}.md`;
-  const hasPlanChange = planRelative === null
-    ? normalized.some((f) => /^\.github\/fork-only\/plans\/issue-\d+\.md$/.test(f))
-    : normalized.includes(planRelative);
+    : matchingPlanFiles[0] ?? changedPlanFiles[0] ?? null;
+  const hasPlanChange = changedPlanFiles.length > 0;
   const hasImplementationChange = normalized.some((f) =>
     IMPLEMENTATION_PATH_PATTERNS.some((pattern) => pattern.test(f))
   );
-  const hasMaintenancePath = normalized.some(
-    (f) => MAINTENANCE_PATHS.has(f) ||
-      (LEGACY_PLAN_PATHS.has(f) && normalizedDeleted.has(f))
-  );
+  const hasMaintenancePath = normalized.some((f) => MAINTENANCE_PATHS.has(f));
   const isMaintenanceOnly =
     normalized.length > 0 &&
-    normalized.every((f) =>
-      MAINTENANCE_PATHS.has(f) ||
-      (LEGACY_PLAN_PATHS.has(f) && normalizedDeleted.has(f))
-    );
+    normalized.every((f) => MAINTENANCE_PATHS.has(f));
   const forkToolingLeaks = normalized.filter(
     (f) => f.startsWith(".github/fork-only/") && f !== planRelative
   );
@@ -500,7 +501,6 @@ async function main() {
   const headSha = pr.head?.sha;
 
   let changedFiles = [];
-  let deletedFiles = [];
   try {
     const output = execFileSync("git", ["diff", "--name-status", `${baseSha}...${headSha}`], {
       cwd: ROOT_FOLDER,
@@ -508,9 +508,6 @@ async function main() {
     });
     const diffEntries = output.split("\n").map((line) => line.trim().split(/\s+/)).filter((parts) => parts.length >= 2);
     changedFiles = diffEntries.map((parts) => parts.at(-1));
-    deletedFiles = diffEntries
-      .filter((parts) => parts[0] === "D")
-      .map((parts) => parts.at(-1));
   } catch (error) {
     errors.push(`Failed to compute changed files via git diff: ${error.message}`);
   }
@@ -520,10 +517,13 @@ async function main() {
   }
 
   const { keyword, issue: issueNumber, errors: linkErrors } = extractIssueLink(prBody);
+  const planFiles = fs.readdirSync(PLANS_DIR)
+    .filter((file) => /^issue-\d+-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/.test(file))
+    .map((file) => `.github/fork-only/plans/${file}`);
   const { mode, planFile, errors: classifyErrors } = classifyChangedPaths(
     changedFiles,
     issueNumber,
-    deletedFiles
+    planFiles
   );
   errors.push(...classifyErrors);
 
@@ -544,6 +544,11 @@ async function main() {
     return;
   }
 
+  if (!planFile) {
+    errors.push(`Expected a slugged plan file for issue #${issueNumber}, but none was found.`);
+    reportAndExit(errors);
+    return;
+  }
   const planPath = path.join(ROOT_FOLDER, planFile);
   if (!fs.existsSync(planPath)) {
     errors.push(`Expected plan file not found: ${planFile}.`);
