@@ -10,9 +10,9 @@ Answer the open questions **on the issue** — that is the canonical channel for
 
 The draft plan PR starts with `Refs #<N>`, so merging or abandoning an advisory plan cannot close the issue accidentally. After approval, implementation, validation, and self-review, the Development Orchestrator changes only that marked line to `Fixes #<N>` and verifies GitHub's `closingIssuesReferences`. GitHub then closes the issue as completed only if that implementation PR merges into `main`; closing the PR without merging leaves the issue open.
 
-## Making `status: approved` executable
+## Enforcing `status: approved`
 
-`status: approved` used to be an unenforced claim in a text file. The **Fork Plan Lifecycle Check** workflow (`.github/workflows/fork-plan-lifecycle-check.yml`, backed by `eng/validate-fork-plan-lifecycle.mjs`) now reads every plan touched by a PR and fails the PR if the claim isn't backed by machine-checkable evidence. A plan is not "read automatically" in the sense of driving behavior on its own — the orchestrator still decides what to do — but its `approved` claim is no longer taken on faith.
+The **Fork Plan Lifecycle Check** workflow (`.github/workflows/fork-plan-lifecycle-check.yml`, backed by `eng/validate-fork-plan-lifecycle.mjs`) validates every plan touched by a PR and fails the PR unless an `approved` claim is backed by machine-checkable evidence. The plan does not drive behavior on its own; the orchestrator determines what to do, while the check verifies the approval evidence.
 
 An approved plan's frontmatter must include a `lifecycle` block:
 
