@@ -89,9 +89,10 @@ Fork-only tooling (`.github/fork-only/`, `.github/workflows/fork-*`) is **never*
 
 1. Read the issue.
 2. Read the current state of the files the issue plausibly touches — the agent file, `plugin.json`, and any relevant skill folders. Read whole files, not fragments; instructions interact.
-3. Check whether a plan already exists for this issue: `ls .github/fork-only/plans/`. If `issue-<N>.md` is already there, you are re-planning — read it first and say in the PR body what changed.
+3. Check whether a plan already exists for this issue: `ls .github/fork-only/plans/` and match `issue-<N>-<slug>.md`. If there is no plan file on the current branch, inspect the existing issue comments for the planner's draft-PR link; if there is exactly one prior planner PR, read its head branch and changed plan filename from the PR, then read that plan at the PR head. Treat that prior branch and filename as the existing plan. If exactly one plan exists, this is a re-plan: keep its exact filename and branch, read it first, and say in the PR body what changed. If multiple plans or prior planner PRs could match, call `noop` rather than choosing arbitrarily.
+   - If none exists, derive a short slug from the issue title: lowercase it, replace every run of non-ASCII letters/digits with `-`, trim leading/trailing hyphens, and keep at most 50 characters without ending in a hyphen. If the result is empty, use `issue`. Name the plan `.github/fork-only/plans/issue-<N>-<slug>.md` and the branch `plan/issue-<N>-<slug>`.
 4. Produce the plan document described below.
-5. Write it to `.github/fork-only/plans/issue-<N>.md`, commit it, and emit `create_pull_request`.
+5. Write it to the selected plan filename, commit it, and emit `create_pull_request` using the selected branch name.
 6. Post one comment on the issue with the open questions.
 
 ## Scope classification
@@ -104,7 +105,7 @@ Before planning, classify the issue as exactly one of:
 
 ## Output 1 — the plan file (always)
 
-Write the finished Markdown to `.github/fork-only/plans/issue-<N>.md` using your file-creation tool, then commit it on a branch named exactly `plan/issue-<N>`.
+Write the finished Markdown to the selected `.github/fork-only/plans/issue-<N>[-<slug>].md` path using your file-creation tool, then commit it on the matching `plan/issue-<N>[-<slug>]` branch. Preserve the selected filename and branch on every re-plan, even if the issue title has since changed.
 
 **Formatting rules:** bullets over prose everywhere. Never write a paragraph longer than one sentence — if you have two things to say, use two bullets. Lead each bullet with a bolded 2–5 word headline, then a dash and the detail. Use `##` headings for each section so the maintainer can scan it.
 
@@ -124,7 +125,7 @@ Required sections, in order:
 
 Then emit `create_pull_request` with:
 
-- `branch`: `plan/issue-<N>`
+- `branch`: the selected branch name (`plan/issue-<N>[-<slug>]`)
 - `title`: `plan: issue #<N> — <short description>` (the `[plan] ` prefix is added for you)
 - `body`: a short summary — the scope classification, the open-questions count, and a standalone line linking the issue as `Refs #<N>` (**not** `Fixes` — this advisory PR must not close the issue). Immediately after that line, add `<!-- fork-issue-link: #<N> -->` as the stable marker the Development Orchestrator uses when it promotes an approved, implemented PR to `Fixes #<N>`. Add one line stating that the open questions are answered on issue #<N>, not on this PR. End with: _"Advisory seed. Resume this branch with the Development Orchestrator agent; rewrite the plan freely."_
 
@@ -152,12 +153,12 @@ Comment contents, in order:
   ```
   Omit this section entirely if you asked no questions.
 - **Material risk** — a single bullet naming a concrete risk from the plan's ambiguities, assumptions, or constraints, if one was identified; otherwise say "No material risk identified." Do not invent one to fill this slot.
-- One line telling the maintainer how to continue: answer the questions above on this issue first, then check out `plan/issue-<N>` and run the Development Orchestrator agent against issue #<N>.
+- One line telling the maintainer how to continue: answer the questions above on this issue first, then check out the selected plan branch and run the Development Orchestrator agent against issue #<N>.
 
 ## Rules
 
 - **`create_pull_request` and `add_comment` exactly once each, and only with finished content.** The run permits one of each — the first call is the only one that will ever land. Do all analysis first, write the content to files, then emit. Never make a test, placeholder, or partial call.
-- **Only ever write `.github/fork-only/plans/issue-<N>.md`.** Do not edit the agent, the plugin, the skills, any workflow, or any other file. Implementation is the maintainer's job — you are producing a plan, not a change. The safe-output handler enforces this, and a violation fails the run.
+- **Only ever write the selected `.github/fork-only/plans/issue-<N>[-<slug>].md` plan file.** Do not edit the agent, the plugin, the skills, any workflow, or any other file. Implementation is the maintainer's job — you are producing a plan, not a change. The safe-output handler enforces this, and a violation fails the run.
 - Do not push to `main`, do not merge, do not close the issue.
 - Never emit `Fixes`, `Closes`, or `Resolves` for the target issue. Only the Development Orchestrator may replace the marked `Refs #<N>` line after approval, implementation, and validation are complete.
 - Be factual. Quote file paths, section headings, and issue text rather than paraphrasing them. If you did not read a file, do not make claims about its contents.

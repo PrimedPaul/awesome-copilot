@@ -93,14 +93,47 @@ test("extractIssueLink rejects a body with both Refs and Fixes", () => {
 // --- classifyChangedPaths ---
 
 test("classifyChangedPaths detects a planning-only PR", () => {
-  const result = classifyChangedPaths([".github/fork-only/plans/issue-66.md"], 66);
+  const result = classifyChangedPaths([".github/fork-only/plans/issue-66-update-agent.md"], 66);
   assert.equal(result.mode, "planning");
   assert.deepEqual(result.errors, []);
 });
 
+test("classifyChangedPaths accepts a slugged plan filename", () => {
+  const plan = ".github/fork-only/plans/issue-66-update-custom-agent-model.md";
+  const result = classifyChangedPaths([plan], 66);
+  assert.equal(result.mode, "planning");
+  assert.equal(result.planFile, plan);
+  assert.deepEqual(result.errors, []);
+});
+
+test("classifyChangedPaths resolves an unchanged slugged plan for an implementation PR", () => {
+  const plan = ".github/fork-only/plans/issue-66-update-custom-agent-model.md";
+  const result = classifyChangedPaths(
+    ["agents/oracle-to-postgres-migration-expert.agent.md"],
+    66,
+    [plan]
+  );
+  assert.equal(result.mode, "implementation");
+  assert.equal(result.planFile, plan);
+  assert.deepEqual(result.errors, []);
+});
+
+test("classifyChangedPaths rejects multiple plan files for one issue", () => {
+  const result = classifyChangedPaths(
+    [".github/fork-only/plans/issue-66-update-model.md"],
+    66,
+    [
+      ".github/fork-only/plans/issue-66-update-agent.md",
+      ".github/fork-only/plans/issue-66-update-model.md",
+    ]
+  );
+  assert.equal(result.mode, "planning");
+  assert.ok(result.errors.some((error) => /multiple plan files for issue #66/.test(error)));
+});
+
 test("classifyChangedPaths detects an implementation PR", () => {
   const result = classifyChangedPaths(
-    ["agents/oracle-to-postgres-migration-expert.agent.md", ".github/fork-only/plans/issue-66.md"],
+    ["agents/oracle-to-postgres-migration-expert.agent.md", ".github/fork-only/plans/issue-66-update-agent.md"],
     66
   );
   assert.equal(result.mode, "implementation");
@@ -135,6 +168,18 @@ test("classifyChangedPaths allows only lifecycle-maintenance paths in maintenanc
   assert.deepEqual(result.errors, []);
 });
 
+test("classifyChangedPaths treats planner source and compiled workflow as maintenance paths", () => {
+  const result = classifyChangedPaths(
+    [
+      ".github/workflows/fork-issue-planner.md",
+      ".github/workflows/fork-issue-planner.lock.yml",
+    ],
+    null
+  );
+  assert.equal(result.mode, "maintenance");
+  assert.deepEqual(result.errors, []);
+});
+
 test("classifyChangedPaths rejects non-allowlisted files bundled with maintenance changes", () => {
   const result = classifyChangedPaths(
     ["eng/validate-fork-plan-lifecycle.mjs", "README.md"],
@@ -142,12 +187,6 @@ test("classifyChangedPaths rejects non-allowlisted files bundled with maintenanc
   );
   assert.equal(result.mode, "maintenance");
   assert.ok(result.errors.some((error) => /explicit lifecycle maintenance allowlist/.test(error)));
-});
-
-test("classifyChangedPaths allows legacy test plans only when deleted", () => {
-  const plan = ".github/fork-only/plans/issue-53.md";
-  assert.equal(classifyChangedPaths([plan], null).mode, "planning");
-  assert.equal(classifyChangedPaths([plan], null, [plan]).mode, "maintenance");
 });
 
 test("classifyChangedPaths does not permit implementation changes through maintenance mode", () => {

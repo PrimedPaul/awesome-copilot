@@ -16,6 +16,8 @@ on:
       - ".github/fork-only/README.md"
       - ".github/agents/dev-orchestrator.agent.md"
       - ".github/agents/plan-reviewer.agent.md"
+      - ".github/workflows/fork-issue-planner.md"
+      - ".github/workflows/fork-issue-planner.lock.yml"
       - "agents/oracle-to-postgres-migration-expert.agent.md"
       - "plugins/oracle-to-postgres-migration-expert/**"
       - "skills/*oracle-to-postgres*/**"
