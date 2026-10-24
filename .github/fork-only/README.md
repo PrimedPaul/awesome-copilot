@@ -136,7 +136,9 @@ The planner never touches anything outside `.github/fork-only/plans/issue-*.md`,
 
 Friday 10:00 UTC (or **Actions → Fork Sync Watchdog → Run workflow**). A PR titled `chore(fork-sync): merge upstream main (YYYY-MM-DD)` appears with an AI comment. Merge with **Create a merge commit**. Then act on the comment's workflow table: disable each **Disable** verdict in the Actions tab, open an issue for each **Integrate** you agree with, and update the keep-list above if it changed. If `CONTRIBUTING.md`/`AGENTS.md` changed, an issue labelled `fork-automation`, `contribution-guidelines` explains the impact — read it before the next promotion.
 
-If the branch already has an open PR, the watchdog refreshes it rather than opening another. `fork-sync/upstream` is a disposable mirror of upstream `main`, not a development branch: divergent commits are replaced using an explicit `--force-with-lease`. A concurrent branch update causes the job to fail rather than overwrite that update; re-run the watchdog after reviewing it.
+If the branch already has an open PR, the watchdog reuses it rather than opening another. It creates a missing `fork-sync/upstream` branch or fast-forwards one that is behind upstream. If the branch already contains upstream `main`, it preserves all commits, including merge-conflict resolutions. An unchanged open PR skips the AI summary and guideline issue; a newly opened PR still receives a summary even if its branch already existed.
+
+If both upstream and the sync branch have unique commits, the watchdog stops without pushing. Merge `upstream/main` into `fork-sync/upstream`, resolve any conflicts, and push normally before re-running. An explicit `--force-with-lease` is used only after proving the update is a fast-forward (or the branch is absent), so a concurrent branch update fails rather than overwriting work. No automatic reset of divergent history is permitted.
 
 ### Promote to upstream
 
