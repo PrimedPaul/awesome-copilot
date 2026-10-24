@@ -33,6 +33,7 @@ jobs:
       pull-requests: write
     outputs:
       has_changes: ${{ steps.diff.outputs.has_changes }}
+      summary_needed: ${{ steps.pr.outputs.summary_needed }}
       pr_number: ${{ steps.pr.outputs.pr_number }}
       upstream_sha: ${{ steps.diff.outputs.upstream_sha }}
       guideline_files: ${{ steps.diff.outputs.guideline_files }}
@@ -89,13 +90,31 @@ jobs:
           CHANGED_WF=$(git diff --name-only --diff-filter=M origin/main...upstream/main -- '.github/workflows/*.yml' '.github/workflows/*.yaml' | paste -sd ',' -)
           echo "changed_workflows=$CHANGED_WF" >> "$GITHUB_OUTPUT"
 
-      - name: Push upstream mirror branch
+      - name: Safely update upstream sync branch
+        id: mirror
         if: steps.diff.outputs.has_changes == 'true'
         run: |
-          # This branch is an upstream mirror; refresh divergence, but reject concurrent updates.
+          UPSTREAM_SHA=$(git rev-parse upstream/main)
           MIRROR_REF=$(git ls-remote origin refs/heads/fork-sync/upstream)
           MIRROR_SHA=$(printf '%s' "$MIRROR_REF" | cut -f1)
-          echo "::notice::Refreshing upstream mirror from ${MIRROR_SHA:-<absent>} to $(git rev-parse upstream/main)."
+
+          if [ -n "$MIRROR_SHA" ]; then
+            git fetch --quiet --no-tags origin "$MIRROR_SHA"
+            COUNTS=$(git rev-list --left-right --count "$MIRROR_SHA...$UPSTREAM_SHA")
+            read -r BRANCH_ONLY UPSTREAM_ONLY <<< "$COUNTS"
+            if [ "$UPSTREAM_ONLY" -eq 0 ]; then
+              echo "branch_changed=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::Sync branch already contains upstream $UPSTREAM_SHA; preserving its commits."
+              exit 0
+            fi
+            if [ "$BRANCH_ONLY" -ne 0 ]; then
+              echo "::error::fork-sync/upstream has diverged from upstream/main. Merge upstream/main into the sync branch and resolve conflicts manually, then re-run. No commits were overwritten."
+              exit 1
+            fi
+          fi
+
+          echo "::notice::Advancing sync branch from ${MIRROR_SHA:-<absent>} to $UPSTREAM_SHA."
+          # Ancestry above permits only fast-forwards; the lease also rejects concurrent edits.
           # Upstream routinely changes .github/workflows/*; pushing those needs the PAT to have the `workflow` scope.
           if ! git push --quiet --force-with-lease="refs/heads/fork-sync/upstream:$MIRROR_SHA" origin upstream/main:refs/heads/fork-sync/upstream 2> push.err; then
             cat push.err
@@ -104,6 +123,7 @@ jobs:
             fi
             exit 1
           fi
+          echo "branch_changed=true" >> "$GITHUB_OUTPUT"
 
       - name: Open or reuse sync PR
         id: pr
@@ -111,11 +131,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.FORK_AUTOMATION_PAT }}
           UPSTREAM_SHA: ${{ steps.diff.outputs.upstream_sha }}
+          BRANCH_CHANGED: ${{ steps.mirror.outputs.branch_changed }}
         run: |
           EXISTING=$(gh pr list --repo "$GITHUB_REPOSITORY" --head fork-sync/upstream --base main --state open --json number --jq '.[0].number // empty')
           if [ -n "$EXISTING" ]; then
             echo "pr_number=$EXISTING" >> "$GITHUB_OUTPUT"
-            echo "::notice::Reusing open sync PR #$EXISTING (mirror refreshed)."
+            echo "summary_needed=$BRANCH_CHANGED" >> "$GITHUB_OUTPUT"
+            echo "::notice::Reusing open sync PR #$EXISTING (branch changed: $BRANCH_CHANGED)."
             exit 0
           fi
 
@@ -135,10 +157,11 @@ jobs:
             --title "chore(fork-sync): merge upstream main ($(date -u +%Y-%m-%d))" \
             --body-file "$BODY_FILE")
           echo "pr_number=${PR_URL##*/}" >> "$GITHUB_OUTPUT"
+          echo "summary_needed=true" >> "$GITHUB_OUTPUT"
           echo "::notice::Opened sync PR $PR_URL"
   agent:
     needs: [sync]
-    if: needs.sync.outputs.has_changes == 'true'
+    if: needs.sync.outputs.summary_needed == 'true'
 safe-outputs:
   add-comment:
     target: "*"
@@ -152,7 +175,7 @@ safe-outputs:
 
 # Fork Sync Watchdog
 
-You are summarising an upstream sync for the maintainer of the fork **${{ github.repository }}** of `github/awesome-copilot`. A deterministic job has already pushed upstream `main` to the branch `fork-sync/upstream` and opened (or refreshed) pull request **#${{ needs.sync.outputs.pr_number }}** against this fork's `main`. Your job is to explain what is in it.
+You are summarising an upstream sync for the maintainer of the fork **${{ github.repository }}** of `github/awesome-copilot`. A deterministic job has ensured the branch `fork-sync/upstream` contains upstream `main` without discarding conflict-resolution commits, and opened (or updated) pull request **#${{ needs.sync.outputs.pr_number }}** against this fork's `main`. Your job is to explain what is in it. Unchanged open sync PRs skip this agent job.
 
 ## Facts from the sync job
 
