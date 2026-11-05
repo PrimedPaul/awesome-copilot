@@ -133,8 +133,13 @@ jobs:
           UPSTREAM_SHA: ${{ steps.diff.outputs.upstream_sha }}
           BRANCH_CHANGED: ${{ steps.mirror.outputs.branch_changed }}
         run: |
+          # The fork-sync label exempts this PR from the fork plan lifecycle check.
+          gh label create fork-sync --repo "$GITHUB_REPOSITORY" --color 0E8A16 \
+            --description "Upstream sync PR opened by fork-sync-watchdog" --force
+
           EXISTING=$(gh pr list --repo "$GITHUB_REPOSITORY" --head fork-sync/upstream --base main --state open --json number --jq '.[0].number // empty')
           if [ -n "$EXISTING" ]; then
+            gh pr edit "$EXISTING" --repo "$GITHUB_REPOSITORY" --add-label fork-sync
             echo "pr_number=$EXISTING" >> "$GITHUB_OUTPUT"
             echo "summary_needed=$BRANCH_CHANGED" >> "$GITHUB_OUTPUT"
             echo "::notice::Reusing open sync PR #$EXISTING (branch changed: $BRANCH_CHANGED)."
@@ -154,6 +159,7 @@ jobs:
 
           PR_URL=$(gh pr create --repo "$GITHUB_REPOSITORY" \
             --base main --head fork-sync/upstream \
+            --label fork-sync \
             --title "chore(fork-sync): merge upstream main ($(date -u +%Y-%m-%d))" \
             --body-file "$BODY_FILE")
           echo "pr_number=${PR_URL##*/}" >> "$GITHUB_OUTPUT"
