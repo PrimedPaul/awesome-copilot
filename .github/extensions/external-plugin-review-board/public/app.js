@@ -13,6 +13,7 @@ const ui = {
     search: document.getElementById("search"),
     refresh: document.getElementById("refresh"),
     review: document.getElementById("review"),
+    reviewStatus: document.getElementById("review-status"),
     drawer: document.getElementById("drawer"),
     drawerKicker: document.getElementById("drawer-kicker"),
     drawerTitle: document.getElementById("drawer-title"),
@@ -20,6 +21,7 @@ const ui = {
     drawerClose: document.getElementById("drawer-close"),
     drawerMove: document.getElementById("drawer-move"),
     drawerRereview: document.getElementById("drawer-rereview"),
+    drawerBlocked: document.getElementById("drawer-blocked"),
     rereviewPanel: document.getElementById("rereview-panel"),
     rereviewGuidance: document.getElementById("rereview-guidance"),
     rereviewCancel: document.getElementById("rereview-cancel"),
@@ -30,6 +32,8 @@ const ui = {
     tabs: [...document.querySelectorAll(".tab")],
     comment: document.getElementById("decision-comment"),
     preview: document.getElementById("decision-preview"),
+    commentPost: document.getElementById("decision-comment-post"),
+    requestFixes: document.getElementById("decision-request-fixes"),
     approve: document.getElementById("decision-approve"),
     reject: document.getElementById("decision-reject"),
     toasts: document.getElementById("toasts"),
@@ -40,7 +44,12 @@ let filter = "";
 let selected = null;
 let activeTab = "review";
 const details = new Map();
+let detailGeneration = 0;
+const detailRequests = new Map();
 const pendingConfirm = { kind: null, timer: null };
+const stagedComments = new Map();
+let bulkBusy = false;
+let decisionBusy = false;
 
 // ---------- helpers ----------
 
@@ -67,12 +76,13 @@ async function api(method, url, body) {
         body: body ? JSON.stringify(body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error ?? `Request failed (${res.status})`);
+    if (!res.ok) throw Object.assign(new Error(data.error ?? `Request failed (${res.status})`),
+        { handoff: data.handoff !== false });
     return data;
 }
 
-function toast(message, { error = false, link } = {}) {
-    const el = h("div", { class: `toast${error ? " error" : ""}`, role: error ? "alert" : "status" }, message);
+function toast(message, { error = false, handoff = error, link } = {}) {
+    const el = h("div", { class: `toast${error ? " error" : ""}`, role: error ? "alert" : "status", ...(handoff ? { "data-agent-error": "" } : {}) }, message);
     if (link) el.append(" ", h("a", { href: link, target: "_blank", rel: "noopener noreferrer" }, "View ↗"));
     ui.toasts.append(el);
     setTimeout(() => el.remove(), error ? 8000 : 5000);
@@ -108,6 +118,9 @@ function itemName(item) {
 
 function signalPills(item) {
     const pills = [];
+    if (!item.reviewEligible && !item.decision) {
+        pills.push(h("span", { class: "pill pill-blocked", title: item.reviewBlockedReason }, "Blocked by intake"));
+    }
     for (const label of item.labels ?? []) {
         const match = label.match(/^needs-review:(HIGH|MEDIUM|LOW)$/i);
         if (match) {
@@ -115,7 +128,14 @@ function signalPills(item) {
             pills.push(h("span", { class: `pill pill-${level.toLowerCase()}`, title: "AGT contributor risk" }, `AGT ${level}`));
         } else if (label === "external-plugin-canvas") {
             pills.push(h("span", { class: "pill" }, "canvas"));
+        } else if (label === "first party") {
+            pills.push(h("span", { class: "pill pill-first-party", title: "Repository owned by a Microsoft/GitHub organization" }, "First party"));
+        } else if (label === "third party") {
+            pills.push(h("span", { class: "pill pill-third-party", title: "Repository owned by a third-party organization" }, "Third party"));
         }
+    }
+    if (item.review?.fastTracked && !item.decision) {
+        pills.push(h("span", { class: "pill pill-approve", title: "First-party submission fast-tracked to approval" }, "Fast-tracked"));
     }
     if (item.decision) {
         pills.push(h("span", { class: `pill pill-${item.decision.kind}` }, item.decision.kind === "approve" ? "Approved" : "Rejected"));
@@ -144,7 +164,14 @@ function findItem(number) {
 
 function pendingReviewCount() {
     return board
-        ? board.items.filter((item) => !item.decision && item.reviewStatus !== "reviewed" && item.reviewStatus !== "queued").length
+        ? board.items.filter(
+              (item) =>
+                  item.reviewEligible &&
+                  !item.decision &&
+                  !item.pendingDecision &&
+                  item.reviewStatus !== "reviewed" &&
+                  item.reviewStatus !== "queued",
+          ).length
         : 0;
 }
 
@@ -157,13 +184,20 @@ function renderBoard() {
     const pending = pendingReviewCount();
     ui.review.textContent = pending ? `Perform review (${pending})` : "Perform review";
     ui.review.disabled = pending === 0;
+    const blocked = board.items.filter((item) => !item.decision && !item.reviewEligible).length;
+    ui.reviewStatus.textContent = `${pending ? `${pending} submission(s) ready to queue for AI review.` : "No submissions can be queued for AI review."}${
+        blocked ? ` ${blocked} blocked by intake; check the issue feedback and refresh after intake completes.` : ""
+    }`;
+    ui.review.title = ui.reviewStatus.textContent;
 
     const scrollPositions = new Map(
         [...ui.board.querySelectorAll(".column")].map((col) => [col.dataset.column, col.querySelector(".column-cards").scrollTop]),
     );
 
     const columns = board.columns.map((column) => {
-        const items = board.items.filter((item) => item.column === column.id && matchesFilter(item));
+        const items = board.items
+            .filter((item) => item.column === column.id && matchesFilter(item))
+            .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt) || a.number - b.number);
         const cards = h(
             "div",
             { class: "column-cards" },
@@ -173,6 +207,7 @@ function renderBoard() {
             "section",
             { class: "column", dataset: { column: column.id }, "aria-label": column.title },
             h("div", { class: "column-header" }, h("span", { class: "column-name" }, column.title), h("span", { class: "count" }, items.length)),
+            column.droppable ? renderColumnActions(column) : null,
             cards,
         );
         if (column.droppable) wireDropTarget(col, column.id);
@@ -182,6 +217,87 @@ function renderBoard() {
 
     for (const col of ui.board.querySelectorAll(".column")) {
         col.querySelector(".column-cards").scrollTop = scrollPositions.get(col.dataset.column) ?? 0;
+    }
+}
+
+function columnItems(columnId, kind) {
+    return board.items.filter((item) => item.column === columnId && !item.decision &&
+        !item.pendingDecision && item.reviewStatus !== "queued" &&
+        (kind === "reject" || item.reviewEligible));
+}
+
+function stagedComment(item) {
+    return (stagedComments.get(item.number) ?? defaultComment(item))
+        .trim().replace(/^\/(approve|reject)\b\s*/i, "").trim();
+}
+
+function renderColumnActions(column) {
+    return h("div", { class: "column-actions", role: "group", "aria-label": `${column.title} bulk actions` },
+        ["approve", "reject", "rereview"].map((kind) => {
+            const count = columnItems(column.id, kind).length;
+            return h("button", {
+                type: "button", class: "btn btn-small", disabled: bulkBusy || !count,
+                title: count
+                    ? `Apply to all ${count} eligible items in this column, including hidden search results`
+                    : kind === "reject"
+                        ? "No items available to reject in this column"
+                        : "No eligible items in this column; AI review and approval require completed intake",
+                onclick: () => bulkAction(column.id, kind),
+            }, `${kind === "rereview" ? "Re-review" : kind === "approve" ? "Approve" : "Reject"} all`);
+        }));
+}
+
+async function bulkAction(columnId, kind) {
+    if (bulkBusy) return;
+    const items = columnItems(columnId, kind).map((item) => ({
+        number: item.number, comment: stagedComment(item),
+    }));
+    if (!items.length) return;
+    if (kind === "reject") {
+        const missing = items.filter((item) => !item.comment.trim().replace(/^\/(approve|reject)\b\s*/i, "").trim());
+        if (missing.length) {
+            toast(`Stage a rejection reason for ${missing.map((item) => `#${item.number}`).join(", ")} before rejecting this column.`, { error: true, handoff: false });
+            return;
+        }
+    }
+    const preview = items.map((item) => `#${item.number}${kind === "rereview" ? "" : `: ${
+        kind === "approve" ? "/approve" : "/reject"} ${item.comment}`}`).join("\n\n");
+    const label = kind === "rereview" ? "Re-review" : kind === "approve" ? "Approve" : "Reject";
+    if (!confirm(`${label} all ${items.length} items in this column (including hidden search results)?\n${
+        kind === "rereview" ? "Queues AI reviews; GitHub is not changed." : "Posts each item's staged comment to GitHub."}\n\n${preview}`)) return;
+    bulkBusy = true;
+    renderBoard();
+    renderDrawer();
+    let completed = 0;
+    const failures = [];
+    let handoff = false;
+    try {
+        if (kind === "rereview") {
+            const result = await api("POST", "/api/review", { numbers: items.map((item) => item.number) });
+            toast(result.message);
+            return;
+        }
+        for (const item of items) {
+            try {
+                if (!columnItems(columnId, kind).some((current) => current.number === item.number)) {
+                    throw Object.assign(new Error("Item moved, was queued, or was already actioned; review it again."), { handoff: false });
+                }
+                await api("POST", "/api/decision", { ...item, kind });
+                completed++;
+                if (selected === item.number) closeDrawer();
+            } catch (error) {
+                failures.push(`#${item.number}: ${error.message}`);
+                handoff ||= error.handoff !== false;
+            }
+        }
+        toast(`${label}: ${completed}/${items.length} commands posted.${failures.length ? ` Failed: ${failures.join(" ")}` : ""}`,
+            { error: failures.length > 0, handoff });
+    } catch (error) {
+        toast(error.message, { error: true, handoff: error.handoff !== false });
+    } finally {
+        bulkBusy = false;
+        renderBoard();
+        renderDrawer();
     }
 }
 
@@ -205,6 +321,9 @@ function renderCard(item) {
         },
         h("div", { class: "card-top" }, h("span", { class: "card-number" }, `#${item.number}`), h("span", { class: "card-byline" }, `@${item.author} · ${relativeTime(item.createdAt)}`)),
         h("p", { class: "card-title" }, itemName(item)),
+        !item.reviewEligible && !item.decision
+            ? h("p", { class: "card-blocked" }, item.reviewBlockedReason)
+            : null,
         item.review?.rationale ? h("p", { class: "card-rationale" }, item.review.rationale) : null,
     );
     const pills = signalPills(item);
@@ -252,9 +371,12 @@ async function moveItem(number, column) {
     const hadReview = column === "unreviewed" && Boolean(findItem(number)?.review);
     try {
         await api("POST", "/api/move", { number, column });
-        if (hadReview) toast(`Cleared the AI review for #${number}; it will be included in the next review.`);
+        if (selected === number) closeDrawer();
+        if (hadReview) toast(findItem(number)?.reviewEligible
+            ? `Cleared the AI review for #${number}; it will be included in the next review.`
+            : `Cleared the AI review for #${number}; intake must complete before it can be reviewed again.`);
     } catch (error) {
-        toast(error.message, { error: true });
+        toast(error.message, { error: true, handoff: error.handoff !== false });
         renderBoard();
     }
 }
@@ -266,7 +388,7 @@ function openDrawer(number) {
     resetConfirm();
     hideRereview();
     const item = findItem(number);
-    ui.comment.value = defaultComment(item);
+    ui.comment.value = stagedComment(item);
     ui.drawer.classList.add("open");
     ui.drawer.setAttribute("aria-hidden", "false");
     renderDrawer();
@@ -307,13 +429,18 @@ function renderDrawer() {
         .map((column) => h("option", { value: column.id, selected: column.id === item.column }, column.title));
     ui.drawerMove.replaceChildren(...options);
     ui.drawerMove.disabled = Boolean(item.decision);
-    ui.drawerRereview.disabled = Boolean(item.decision) || item.reviewStatus === "queued";
+    ui.drawerRereview.disabled = !item.reviewEligible || Boolean(item.decision) ||
+        Boolean(item.pendingDecision) || item.reviewStatus === "queued";
+    ui.drawerBlocked.hidden = item.reviewEligible || Boolean(item.decision);
+    ui.drawerBlocked.textContent = ui.drawerBlocked.hidden ? "" : `Blocked by intake: ${item.reviewBlockedReason}`;
+    ui.drawerRereview.title = !item.reviewEligible ? item.reviewBlockedReason : "";
+    ui.approve.title = !item.reviewEligible ? item.reviewBlockedReason : "";
     if (ui.drawerRereview.disabled) hideRereview();
 
     for (const tab of ui.tabs) {
         tab.setAttribute("aria-selected", String(tab.dataset.tab === activeTab));
         if (tab.dataset.tab === "comments") {
-            const count = details.get(item.number)?.comments.length;
+            const count = details.get(item.number)?.comments?.length;
             tab.textContent = count != null ? `Comments (${count})` : "Comments";
         }
     }
@@ -334,7 +461,7 @@ function renderTab(item) {
         return;
     }
     if (detail.error) {
-        ui.drawerBody.replaceChildren(h("p", { class: "notice" }, `Couldn't load issue: ${detail.error}`));
+        ui.drawerBody.replaceChildren(h("p", { class: "notice", ...(detail.handoff !== false ? { "data-agent-error": "" } : {}) }, `Couldn't load issue: ${detail.error}`));
         return;
     }
     if (activeTab === "issue") {
@@ -385,13 +512,15 @@ function renderReview(item) {
                 { class: "notice" },
                 item.reviewStatus === "queued"
                     ? `Queued for AI review ${relativeTime(item.queuedAt)}. Results appear here when the agent records them.`
-                    : "No AI review yet. Use “Perform review” or “Re-review” to have the agent assess it.",
+                    : !item.reviewEligible
+                        ? "No AI review yet. Review is blocked until intake completes."
+                        : "No AI review yet. Use “Perform review” or “Re-review” to have the agent assess it.",
             ),
         );
         return wrapper;
     }
     const rows = [
-        ["Recommendation", RECOMMENDATION_LABELS[review.recommendation] + (item.manualColumn ? ` (you moved it to ${RECOMMENDATION_LABELS[item.manualColumn]})` : "")],
+        ["Recommendation", RECOMMENDATION_LABELS[review.recommendation] + (review.fastTracked ? " (first-party fast-track, no AI review)" : "") + (item.manualColumn ? ` (you moved it to ${RECOMMENDATION_LABELS[item.manualColumn]})` : "")],
         ["Plugin", review.pluginName],
         ["Repository", review.repository ? h("a", { href: `https://github.com/${review.repository}`, target: "_blank", rel: "noopener noreferrer" }, review.repository) : null],
         ["Repo facts", review.repoFacts],
@@ -447,13 +576,20 @@ function renderComment(comment) {
 
 async function loadDetail(number, { force = false } = {}) {
     if (!force && details.has(number) && !details.get(number).error) return;
+    const generation = detailGeneration;
+    const request = {};
+    detailRequests.set(number, request);
     details.delete(number);
     if (selected === number) renderDrawer();
     try {
         const data = await api(force ? "POST" : "GET", `/api/issue/${number}`);
+        if (generation !== detailGeneration || detailRequests.get(number) !== request) return;
         details.set(number, data);
     } catch (error) {
-        details.set(number, { error: error.message });
+        if (generation !== detailGeneration || detailRequests.get(number) !== request) return;
+        details.set(number, { error: error.message, handoff: error.handoff !== false });
+    } finally {
+        if (detailRequests.get(number) === request) detailRequests.delete(number);
     }
     if (selected === number) renderDrawer();
 }
@@ -461,66 +597,173 @@ async function loadDetail(number, { force = false } = {}) {
 // ---------- decisions ----------
 
 function commentBody(kind) {
-    const text = ui.comment.value.trim().replace(/^\/(approve|reject)\b\s*/i, "");
+    if (kind === "comment") return ui.comment.value.trim();
+    const text = reasonText(kind);
     if (kind === "approve") return text ? `/approve\n\n${text}` : "/approve";
+    if (kind === "request-fixes") return text ? `/request-fixes ${text}` : "/request-fixes <fixes required>";
     return text ? `/reject ${text}` : "/reject <reason required>";
+}
+
+function reasonText(kind) {
+    return ui.comment.value.trim()
+        .replace(new RegExp(`^/${kind}(?![\\w-])\\s*`, "i"), "")
+        .trim();
+}
+
+// Free-form comments are posted as written, so they must not look like a slash command to the
+// external plugin command router.
+function freeformCommentError(text) {
+    if (!text) return "Write a comment before posting.";
+    if (text.startsWith("/")) {
+        return "Comments starting with “/” could trigger issue automation. Use Request fixes, Reject, or Approve instead, or reword the comment.";
+    }
+    return null;
 }
 
 function updatePreview() {
     const kind = pendingConfirm.kind;
     ui.preview.textContent = kind
         ? `Will post:\n${commentBody(kind)}`
-        : `Reject posts: ${commentBody("reject")}\nApprove posts: ${commentBody("approve").replace(/\n+/g, " ⏎ ")}`;
-    ui.reject.disabled = !ui.comment.value.trim().replace(/^\/(approve|reject)\b\s*/i, "");
-    ui.reject.title = ui.reject.disabled ? "Reject requires a reason." : "";
+        : [
+            `Request fixes posts: ${commentBody("request-fixes")}`,
+            `Reject posts: ${commentBody("reject")}`,
+            `Approve posts: ${commentBody("approve")}`,
+        ].map((line) => line.replace(/\n+/g, " ⏎ ")).join("\n");
+    const item = findItem(selected);
+    const busy = bulkBusy || decisionBusy;
+    const pendingDecision = Boolean(item?.pendingDecision);
+    const pendingFixesRequest = Boolean(item?.pendingFixesRequest);
+    const hasReason = Boolean(reasonText("reject"));
+    ui.reject.disabled = busy || pendingDecision || pendingFixesRequest || !hasReason;
+    ui.reject.title = hasReason ? "" : "Reject requires a reason.";
+    const hasFixes = Boolean(reasonText("request-fixes"));
+    const awaitingFixes = item?.labels?.includes("requires-submitter-fixes");
+    ui.requestFixes.disabled = busy || pendingDecision || pendingFixesRequest || awaitingFixes || !hasFixes;
+    ui.requestFixes.title = awaitingFixes
+        ? "Already waiting on submitter fixes."
+        : pendingFixesRequest
+            ? "A fixes request is awaiting workflow confirmation."
+            : hasFixes ? "" : "Request fixes requires a description of what to change.";
+    ui.approve.disabled = busy || pendingDecision || pendingFixesRequest || !item?.reviewEligible;
+    const commentProblem = freeformCommentError(ui.comment.value.trim());
+    ui.commentPost.disabled = busy || Boolean(commentProblem);
+    ui.commentPost.title = commentProblem ?? "";
 }
 
 function resetConfirm() {
     clearTimeout(pendingConfirm.timer);
     pendingConfirm.kind = null;
-    ui.approve.textContent = "Approve";
-    ui.reject.textContent = "Reject";
-    ui.approve.classList.remove("confirming");
-    ui.reject.classList.remove("confirming");
-    ui.approve.disabled = false;
-    ui.reject.disabled = false;
+    for (const [button, label] of [
+        [ui.commentPost, "Comment"],
+        [ui.requestFixes, "Request fixes"],
+        [ui.reject, "Reject"],
+        [ui.approve, "Approve"],
+    ]) {
+        button.textContent = label;
+        button.classList.remove("confirming");
+        button.disabled = false;
+    }
     updatePreview();
+    const item = findItem(selected);
+    if (bulkBusy || item?.pendingDecision) {
+        ui.approve.disabled = true;
+        ui.reject.disabled = true;
+        ui.requestFixes.disabled = true;
+    }
+    if (bulkBusy) ui.commentPost.disabled = true;
+    if (!item?.reviewEligible) ui.approve.disabled = true;
+    if (item?.labels?.includes("requires-submitter-fixes")) ui.requestFixes.disabled = true;
 }
 
 async function decide(kind) {
     const item = findItem(selected);
-    if (!item) return;
-    if (kind === "reject" && !ui.comment.value.trim().replace(/^\/(approve|reject)\b\s*/i, "")) {
-        toast("Reject decisions require a reason.", { error: true });
+    if (!item || bulkBusy || decisionBusy || (kind !== "comment" && item.pendingDecision)) return;
+    const problem = kind === "comment"
+        ? freeformCommentError(ui.comment.value.trim())
+        : kind === "reject" && !reasonText("reject")
+            ? "Reject decisions require a reason."
+            : kind === "request-fixes" && !reasonText("request-fixes")
+                ? "Request fixes needs a description of what the submitter must change."
+                : null;
+    if (problem) {
+        toast(problem, { error: true, handoff: false });
         updatePreview();
         return;
     }
+    const buttons = { comment: ui.commentPost, "request-fixes": ui.requestFixes, reject: ui.reject, approve: ui.approve };
     if (pendingConfirm.kind !== kind) {
         resetConfirm();
         pendingConfirm.kind = kind;
-        const button = kind === "approve" ? ui.approve : ui.reject;
-        button.textContent = kind === "approve" ? "Confirm approve" : "Confirm reject";
-        button.classList.add("confirming");
+        buttons[kind].textContent = {
+            comment: "Confirm comment",
+            "request-fixes": "Confirm request fixes",
+            reject: "Confirm reject",
+            approve: "Confirm approve",
+        }[kind];
+        buttons[kind].classList.add("confirming");
         updatePreview();
         pendingConfirm.timer = setTimeout(resetConfirm, 6000);
         return;
     }
     clearTimeout(pendingConfirm.timer);
-    ui.approve.disabled = true;
-    ui.reject.disabled = true;
+    decisionBusy = true;
+    updatePreview();
+    const number = item.number;
+    const submittedDraft = ui.comment.value;
     try {
-        const result = await api("POST", "/api/decision", { number: item.number, kind, comment: ui.comment.value });
-        toast(
-            result.pending
-                ? `Posted ${result.body.split("\n")[0]} on #${item.number}; waiting for workflow confirmation.`
-                : `Posted ${result.body.split("\n")[0]} on #${item.number}`,
-            { link: result.commentUrl },
-        );
+        if (kind === "comment") {
+            const result = await api("POST", "/api/comment", { number, body: submittedDraft.trim() });
+            toast(`Posted comment on #${number}`, { link: result.commentUrl });
+            clearSubmittedDraft(number, submittedDraft, "");
+            if (selected === number) {
+                activeTab = "comments";
+                renderDrawer();
+            }
+            await loadDetail(number, { force: true });
+        } else if (kind === "request-fixes") {
+            const result = await api("POST", "/api/request-fixes", { number, comment: submittedDraft });
+            toast(
+                result.pending
+                    ? `Posted /request-fixes on #${number}; waiting for the workflow to update labels.`
+                    : `Requested fixes on #${number}`,
+                { link: result.commentUrl },
+            );
+            clearSubmittedDraft(number, submittedDraft);
+            if (selected === number) closeDrawer();
+        } else {
+            const result = await api("POST", "/api/decision", { number, kind, comment: ui.comment.value });
+            toast(
+                result.pending
+                    ? `Posted ${result.body.split("\n")[0]} on #${number}; waiting for workflow confirmation.`
+                    : `Posted ${result.body.split("\n")[0]} on #${number}`,
+                { link: result.commentUrl },
+            );
+            if (selected === number) closeDrawer();
+        }
     } catch (error) {
-        toast(error.message, { error: true });
+        toast(error.message, { error: true, handoff: error.handoff !== false });
     } finally {
-        resetConfirm();
+        decisionBusy = false;
+        if (selected === number) resetConfirm();
+        else updatePreview();
     }
+}
+
+function clearSubmittedDraft(number, submittedDraft, replacement) {
+    const item = board.items.find((candidate) => candidate.number === number);
+    const currentDraft = selected === number
+        ? ui.comment.value
+        : stagedComments.has(number)
+            ? stagedComments.get(number)
+            : defaultComment(item);
+    if (currentDraft !== submittedDraft) return false;
+
+    if (replacement === undefined) stagedComments.delete(number);
+    else stagedComments.set(number, replacement);
+    if (selected === number && ui.comment.value === submittedDraft) {
+        ui.comment.value = replacement ?? defaultComment(item);
+    }
+    return true;
 }
 
 // ---------- toolbar ----------
@@ -542,14 +785,16 @@ ui.refresh.addEventListener("click", () =>
     withBusy(ui.refresh, "Refreshing…", async () => {
         try {
             const result = await api("POST", "/api/refresh");
+            ++detailGeneration;
             details.clear();
             const parts = [`${result.total} open`];
             if (result.added.length) parts.push(`${result.added.length} new`);
             if (result.removed.length) parts.push(`${result.removed.length} removed`);
+            if (result.fastTracked?.length) parts.push(`${result.fastTracked.length} first-party fast-tracked`);
             toast(`Refreshed: ${parts.join(", ")}`);
             if (selected != null && activeTab !== "review") loadDetail(selected, { force: true });
         } catch (error) {
-            toast(error.message, { error: true });
+            toast(error.message, { error: true, handoff: error.handoff !== false });
         }
     }),
 );
@@ -560,7 +805,7 @@ ui.review.addEventListener("click", () =>
             const result = await api("POST", "/api/review", {});
             toast(result.message);
         } catch (error) {
-            toast(error.message, { error: true });
+            toast(error.message, { error: true, handoff: error.handoff !== false });
         }
     }),
 );
@@ -571,6 +816,9 @@ ui.search.addEventListener("input", () => {
 });
 
 ui.drawerClose.addEventListener("click", closeDrawer);
+document.addEventListener("pointerdown", (event) => {
+    if (selected !== null && !ui.drawer.contains(event.target)) closeDrawer();
+}, true);
 ui.drawerMove.addEventListener("change", () => moveItem(selected, ui.drawerMove.value));
 function hideRereview() {
     ui.rereviewPanel.hidden = true;
@@ -610,9 +858,9 @@ ui.rereviewPanel.addEventListener("submit", async (event) => {
     try {
         const result = await api("POST", "/api/rereview", { number, guidance: ui.rereviewGuidance.value });
         toast(result.message);
-        hideRereview();
+        if (selected === number) closeDrawer();
     } catch (error) {
-        toast(error.message, { error: true });
+        toast(error.message, { error: true, handoff: error.handoff !== false });
     } finally {
         ui.rereviewStart.disabled = false;
     }
@@ -627,11 +875,14 @@ for (const tab of ui.tabs) {
 }
 
 ui.comment.addEventListener("input", () => {
+    if (selected != null) stagedComments.set(selected, ui.comment.value);
     if (pendingConfirm.kind) resetConfirm();
     else updatePreview();
 });
 ui.approve.addEventListener("click", () => decide("approve"));
 ui.reject.addEventListener("click", () => decide("reject"));
+ui.requestFixes.addEventListener("click", () => decide("request-fixes"));
+ui.commentPost.addEventListener("click", () => decide("comment"));
 
 document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && selected != null) {
@@ -645,10 +896,18 @@ document.addEventListener("keydown", (event) => {
 function connect() {
     const events = new EventSource(`/events?token=${encodeURIComponent(token)}`);
     events.addEventListener("board", (event) => {
-        board = JSON.parse(event.data);
+        const snapshot = JSON.parse(event.data);
+        const refreshed = board?.lastRefreshedAt !== snapshot.lastRefreshedAt;
+        board = snapshot;
+        if (refreshed) {
+            ++detailGeneration;
+            details.clear();
+        }
         renderBoard();
         if (selected != null) renderDrawer();
+        if (refreshed && selected != null && activeTab !== "review") loadDetail(selected, { force: true });
     });
+    events.addEventListener("refresh-error", (event) => toast(JSON.parse(event.data).error, { error: true }));
     events.addEventListener("error", () => {
         ui.meta.textContent = "Reconnecting…";
     });

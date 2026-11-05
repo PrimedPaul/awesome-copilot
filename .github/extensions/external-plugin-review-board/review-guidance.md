@@ -11,7 +11,7 @@ submissions before reviewing (see "Calibrate" below).
 
 **Typically approved**
 
-- Established vendors or well-known OSS projects with genuine developer-workflow value
+- Established vendors or well-known OSS projects with genuine Copilot user value across supported workflows
   (e.g. Sumo Logic, Atlassian Teamwork Graph CLI, bitdrift, Remotion, Radius, incident.io-style SRE tooling).
 - Genuinely useful Copilot tooling and canvases that don't duplicate built-in features
   (e.g. excel-cli/excel-mcp, chat-fork-map, cache-stats, usage-insights).
@@ -26,8 +26,11 @@ submissions before reviewing (see "Calibrate" below).
   broadly relevant, neutrally framed plugins that are clear about their limitations are welcome.
 - Marketing pitches for brand-new products, often vibe-coded dumps (repo days old, 0 stars, few commits) —
   "This is primarily a marketing push for an external service."
-- Crypto / payments / finance niches, or otherwise niche problem spaces — "This is not a fit for the repo."
-  / "a bit too niche a problem space for this repo."
+- Free skills as an on-ramp to the vendor's paid/credit-based MCP or connector: vendor LICENSE or
+  `metadata.author`, `mcp add` setup commands pointing at the vendor's API, UTM/referral links, or an upstream
+  README that markets the free content as a funnel — "we're not a marketing channel".
+- Narrow submissions with no demonstrated Copilot relevance, standalone user value, or meaningful uplift —
+  "This is not a fit for the repo." / "a bit too niche a problem space for this repo."
 - Duplicates of built-in Copilot features: memory ("Copilot has a built-in memory system"), tool-use guards
   ("Copilot harnesses already have built-in provisions for controlling tool use"), markdown viewing, browser
   automation ("This can be done using Playwright, which is available in the Copilot harnesses").
@@ -36,6 +39,23 @@ submissions before reviewing (see "Calibrate" below).
 - Self-promotional or overly complex skills — "heavily geared towards self-promotion ... overly complex".
 - Bulk submissions of many tiny related repos from one submitter.
 - Resubmissions: check whether the reasons for the previous rejection were actually addressed.
+
+## Assess Copilot value across workflows
+
+Do not assume submissions must address coding or other text-based developer tasks.
+Consider Copilot-supported workflows across modalities, including image, video,
+audio, other media generation, and creative work where applicable. Modality or
+non-coding use alone is not a reason to reject. Assess the concrete Copilot
+relevance, the specific user problem and standalone value, and what the plugin
+adds beyond a capable model acting without it (knowledge uplift).
+
+Keep that scope assessment separate from the quality gates: reject marketing-only
+funnels and paid or credit-based acquisition paths that provide no standalone
+user value; identify duplicates of native Copilot features and generic content
+with no meaningful uplift. Check provenance and ownership, responsible use, and
+validation evidence appropriate to the workflow (for example, meaningful output
+evaluation for a media-generation workflow rather than code-only tests). A
+non-coding workflow still needs concrete value and credible evidence.
 
 ## Procedure per issue
 
@@ -69,3 +89,16 @@ and read the `/approve` / `/reject` comments on the most recent ones.
 - `probably-reject` — likely reject, but something specific deserves a quick maintainer look.
 - `needs-review` — genuine judgement call.
 - `accept` — fits the approval pattern.
+
+## Ownership labels
+
+Intake labels submissions by who owns the plugin repository:
+
+- `first party` — owned by a Microsoft/GitHub organization (Microsoft, GitHub, Azure, dotnet, MicrosoftDocs,
+  microsoftgraph). The board fast-tracks these straight to `accept` without an AI review. If a maintainer
+  explicitly moves one to `Unreviewed`, that opts it out of the fast-track: review it using the same procedure,
+  maintainer decision pattern, and recommendation buckets as any other submission. Assess its repo fit,
+  usefulness, duplication, and content quality on their merits; first-party ownership is not a reason to
+  recommend `accept`.
+- `third party` — owned by another organization. This is a signal only; apply the normal decision pattern.
+- No ownership label — owned by a user account (or ownership couldn't be determined).

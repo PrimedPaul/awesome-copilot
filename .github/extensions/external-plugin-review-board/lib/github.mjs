@@ -29,7 +29,22 @@ function runGh(args, { input } = {}) {
     });
 }
 
-export async function listReadyIssues(repo) {
+export function mapBoardIssues(issues) {
+    const boardStates = new Set(["ready-for-review", "awaiting-review", "requires-submitter-fixes"]);
+    return issues
+        .filter((issue) => (issue.labels ?? []).some((label) => boardStates.has(label.name)))
+        .map((issue) => ({
+            number: issue.number,
+            title: issue.title,
+            author: issue.author?.login ?? "unknown",
+            createdAt: issue.createdAt,
+            updatedAt: issue.updatedAt,
+            url: issue.url,
+            labels: (issue.labels ?? []).map((label) => label.name),
+        }));
+}
+
+export async function listBoardIssues(repo) {
     const out = await runGh([
         "issue",
         "list",
@@ -37,8 +52,6 @@ export async function listReadyIssues(repo) {
         repo,
         "--label",
         "external-plugin",
-        "--label",
-        "ready-for-review",
         "--state",
         "open",
         "--limit",
@@ -46,15 +59,7 @@ export async function listReadyIssues(repo) {
         "--json",
         "number,title,author,createdAt,updatedAt,labels,url",
     ]);
-    return JSON.parse(out).map((issue) => ({
-        number: issue.number,
-        title: issue.title,
-        author: issue.author?.login ?? "unknown",
-        createdAt: issue.createdAt,
-        updatedAt: issue.updatedAt,
-        url: issue.url,
-        labels: (issue.labels ?? []).map((label) => label.name),
-    }));
+    return mapBoardIssues(JSON.parse(out));
 }
 
 const FULL_JSON = ["-H", "Accept: application/vnd.github.full+json"];
@@ -91,6 +96,38 @@ export async function getIssueStatus(repo, number) {
     const out = await runGh(["issue", "view", String(number), "-R", repo, "--json", "state,labels"]);
     const data = JSON.parse(out);
     return { state: data.state, labels: (data.labels ?? []).map((label) => label.name) };
+}
+
+export const MAX_COMMENT_LENGTH = 60000;
+
+// Free-form comments must never be parsed as slash commands by the external plugin command router,
+// which matches on the comment body starting with `/<command>`.
+export function normalizeFreeformComment(body) {
+    const text = String(body ?? "").trim();
+    if (!text) throw new Error("Comment cannot be empty.");
+    if (text.length > MAX_COMMENT_LENGTH) {
+        throw new Error(`Comment is too long (${text.length} characters; maximum ${MAX_COMMENT_LENGTH}).`);
+    }
+    if (text.startsWith("/")) {
+        throw new Error(
+            "Comments starting with \"/\" could trigger issue automation. Use the Approve, Reject, or Request fixes actions instead, or reword the comment.",
+        );
+    }
+    return text;
+}
+
+// Builds the `/request-fixes <reason>` command handled by the external plugin command router. The
+// router ignores the command without a reason, so one is required here too.
+export function buildRequestFixesCommand(reason) {
+    const text = String(reason ?? "")
+        .trim()
+        .replace(/^\/request-fixes(?![\w-])/i, "")
+        .trim();
+    if (!text) throw new Error("Request fixes needs a description of what the submitter must change.");
+    if (text.length > MAX_COMMENT_LENGTH) {
+        throw new Error(`Comment is too long (${text.length} characters; maximum ${MAX_COMMENT_LENGTH}).`);
+    }
+    return `/request-fixes ${text}`;
 }
 
 export async function postComment(repo, number, body) {

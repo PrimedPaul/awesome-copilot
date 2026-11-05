@@ -10,6 +10,18 @@ deterministic checklists in `.github/copilot-instructions.md` first, then use
 this skill for the editorial and repository-fit judgments that cannot be
 reduced to schema validation.
 
+Validate frontmatter as YAML and check the required metadata, not quote style.
+Plain, single-quoted, double-quoted, literal, and folded scalars are all acceptable
+when they parse to values that meet the field's type and content requirements.
+Do not request changes solely because a value is not single-quoted.
+
+For skills, use the [Agent Skills specification](https://agentskills.io/specification)
+for `SKILL.md` structure and field constraints, plus the repository-specific
+checks in `.github/copilot-instructions.md`. General YAML validity does not
+replace the specification: for example, `metadata` must map strings to strings,
+and `allowed-tools` must be a space-separated string, not a sequence. Check
+parsed types and values without imposing a quote style.
+
 ## Review priorities
 
 Review in this order:
@@ -28,10 +40,17 @@ be evaluated according to their source change.
 ## Repository fit
 
 Confirm that a submission addresses a specific GitHub Copilot workflow,
-technology, domain constraint, or user problem. Flag contributions that:
+technology, domain constraint, or user problem.
 
+Repository fit is not limited to coding or other text-based developer tasks.
+Consider the workflows Copilot supports, including image, video, audio, other
+media generation, and creative work where applicable. Modality or non-coding
+use alone is not a reason to reject; require concrete Copilot relevance and
+specific standalone user value.
+
+Flag contributions that:
 - provide generic advice that current models already handle well without
-  meaningful uplift
+  meaningful uplift (see [Knowledge uplift](#knowledge-uplift))
 - restate an existing resource without a clear differentiator
 - use broad claims such as doing everything for every project
 - lack concrete instructions, constraints, examples, or expected outcomes
@@ -40,6 +59,55 @@ technology, domain constraint, or user problem. Flag contributions that:
 Paid or commercial services are not automatically unsuitable. Evaluate whether
 the contribution provides standalone user value and follows the repository's
 guidance for paid-service submissions.
+
+Assess knowledge uplift, provenance, product/vendor-funnel evidence,
+responsible use, and validation appropriate to the workflow independently of
+its modality. Reject marketing-only funnels, paid or credit-based acquisition
+paths without standalone user value, duplicates of native Copilot features,
+and generic content with no meaningful uplift.
+
+## Knowledge uplift
+
+A resource is only valuable if it changes what the model does. Well-formatted,
+compliant content can still add nothing. Apply this test to every agent,
+instruction, skill, prompt, hook, or workflow that a PR adds or substantially
+changes:
+
+1. Picture a current frontier model given the same task with no resource
+   loaded. What would it do?
+2. Identify what this resource makes it do differently. The value is that
+   delta, not the content itself.
+
+Count as real uplift:
+
+- facts the model is unlikely to know or get right, such as recent or niche
+  APIs, version-specific breaking changes, and non-obvious gotchas
+- internal, proprietary, or organization-specific tools and conventions
+- constraints that deliberately override sensible defaults
+- bundled scripts, templates, or data that produce deterministic results
+- multi-step workflows that wire specific tools or MCP servers together
+- concrete examples of non-obvious expected output
+
+Do not count as uplift:
+
+- generic best practices such as clean code, SOLID, DRY, meaningful names,
+  writing tests, or handling errors
+- restatements of well-known public documentation for mainstream languages and
+  frameworks
+- persona framing such as "You are an expert X" without new constraints
+- checklists of behavior models already exhibit by default
+- long prose that a one-line user request would replace
+
+Length, polish, and structure are not evidence of value. Quote or cite the
+specific lines that carry the uplift; if you cannot find any, say so plainly.
+Classify the result as:
+
+- **high** — most of the content is non-obvious to a capable model
+- **partial** — a useful core surrounded by generic filler
+- **none** — a capable model would behave essentially the same without it
+
+Do not recommend approval when uplift is **none**. For **partial**, ask the
+author to cut the named generic sections and expand the specific ones.
 
 ## AI-authored submissions
 
@@ -64,6 +132,11 @@ Flag marketing-heavy framing only when there is concrete evidence, such as:
 - links or calls to action that dominate the resource
 - a resource whose primary purpose is acquiring users rather than helping them
   use GitHub Copilot
+- a "free resource → paid connector" structure: MCP/connector setup commands,
+  UTM or referral links, or credit-based upsells pointing at the author's
+  service, including adapted copies where the vendor name was removed but the
+  hook remains. Check the LICENSE copyright holder, `metadata.author`, and the
+  upstream repository README to confirm who owns the content.
 
 Describe the specific evidence and suggest how to refocus the contribution on
 the user problem. Do not infer promotional intent solely because an author is
@@ -98,7 +171,9 @@ appropriate evidence depends on the resource:
   describe
 
 Do not require executable tests for prose-only resources when a realistic
-manual evaluation is more appropriate.
+manual evaluation is more appropriate. An AI-only synthetic evaluation whose
+fixture was built to exercise the resource's own rules, or testing only in a
+non-Copilot harness, is weak evidence on its own.
 
 ## Trusted and automated paths
 

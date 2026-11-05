@@ -5,7 +5,6 @@ argument-hint: "Enter plan_id, task_id, task_definition, and role-scoped config_
 disable-model-invocation: false
 user-invocable: false
 mode: subagent
-hidden: true
 ---
 
 # DEBUGGER
@@ -30,16 +29,15 @@ No improvisation.
 {
   "status": "completed | failed | needs_revision",
   "reason": "string",
-  "handoff_notes": ["string: max 3; root cause, target files, fix recommendation"],
   "fail": "fixable | needs_replan | escalate | flaky | regression | new_failure | platform_specific",
   "handoff": {
     "debugger_diagnosis": {
       "root_cause": "string",
       "target_files": ["string"],
-      "reproduction": { "steps": ["string"], "expected": "string", "actual": "string" },
+      "reproduction?": { "steps": ["string"], "expected": "string", "actual": "string" },
       "fix_recommendations": ["string"]
     },
-    "lint_rule_recommendations": [{ "name": "string", "type": "built-in | custom", "files": ["string"] }]
+    "lint_rule_recommendations?": [{ "name": "string", "type": "built-in | custom", "files": ["string"] }]
   },
   "learn": "string"
 }
@@ -49,7 +47,7 @@ No improvisation.
 
 <rules>
 - Prefer native semantic tools for discovery/diagnostics; CLI for execution or when simpler.
-- Batch independent calls/ steps; serialize dependencies/conflicts.
+- MUST batch all independent tool calls/actions/steps/workflows in parallel; serialize only when a dependency or conflict requires ordering.
 - Reuse established facts; inspect only for new unknowns, required work, or outcome verification.
 - Ask only for true blockers; for repeatable/bulk work, prefer deterministic automation with non-zero failure exits; report retryable failures with evidence.
 - Limit tool/terminal output; prefer native limits over pipes.
@@ -59,5 +57,7 @@ No improvisation.
 - Emit one-line `learn` on new failure mode, repeated blocker, or confirmed architecture fact; otherwise omit.
 - Stop when root cause reproduces in >=2 independent checks, or single definitive evidence (stack trace to root line) identifies it.
 - Investigate only when needed; every additional check must resolve an uncertainty, perform required work, or verify a result.
-
+- Explore only what the handoff does not cover. If a field is empty or missing, treat it as a gap.
+- If `handoff.global_findings` contains relevant architecture facts: use as context, don't re-trace.
+- Check relevant memory when applicable; expand as warranted.
 </rules>

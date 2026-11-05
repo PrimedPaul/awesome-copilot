@@ -4,9 +4,27 @@ import { afterEach, test } from "node:test";
 import {
   applyQualityGateResult,
   evaluateExternalPluginIssue,
+  parseRequestFixesCommand,
   PinnedAddressDispatcher,
   validateCanvasPluginMetadata,
 } from "./external-plugin-intake.mjs";
+
+test("parseRequestFixesCommand keeps a multi-line reason", () => {
+  assert.deepEqual(parseRequestFixesCommand("/request-fixes Pin a SHA.\n\n- Add a LICENSE"), {
+    command: "/request-fixes",
+    reason: "Pin a SHA.\n\n- Add a LICENSE",
+  });
+});
+
+test("parseRequestFixesCommand reports a missing reason", () => {
+  assert.deepEqual(parseRequestFixesCommand("  /request-fixes   "), { command: "/request-fixes", reason: undefined });
+});
+
+test("parseRequestFixesCommand only matches the command at the start", () => {
+  assert.equal(parseRequestFixesCommand("please /request-fixes now"), undefined);
+  assert.equal(parseRequestFixesCommand("/request-fixes-later x"), undefined);
+  assert.equal(parseRequestFixesCommand("/approve"), undefined);
+});
 
 const REPO = "owner/repo";
 const SHA = "0123456789abcdef0123456789abcdef01234567";
@@ -15,6 +33,58 @@ const PLUGIN_ROOT = "plugins/upgrade-agent";
 const TREE_PLUGINS = "tree-plugins";
 const TREE_UPGRADE_AGENT = "tree-upgrade-agent";
 const TREE_EXTENSIONS = "tree-extensions";
+
+const validBaseEvaluation = {
+  valid: true,
+  plugin: {
+    name: "example-plugin",
+    repository: "https://github.com/example/plugin",
+    source: { repo: "example/plugin", ref: "v1.0.0" },
+  },
+  warnings: [],
+};
+
+test("applyQualityGateResult blocks spec failures and displays them as failures", () => {
+  const result = applyQualityGateResult(validBaseEvaluation, {
+    overall_status: "fail",
+    failure_class: "submitter_fixes",
+    spec_compliance_status: "fail",
+    spec_compliance_output: "Agent Plugins v1.0.0 manifest errors",
+    vally_lint_status: "pass",
+    smoke_status: "pass",
+  });
+
+  assert.equal(result.intakeState, "requires-submitter-fixes");
+  assert.match(result.commentBody, /intake failed \(submitter fixes required\)/);
+  assert.match(result.commentBody, /\| spec compliance \| 🛑 fail \|/);
+  assert.doesNotMatch(result.commentBody, /non-blocking|passed with spec warnings/);
+});
+
+test("applyQualityGateResult advances successful quality checks", () => {
+  const result = applyQualityGateResult(validBaseEvaluation, {
+    overall_status: "pass",
+    failure_class: "none",
+    spec_compliance_status: "pass",
+    vally_lint_status: "pass",
+    smoke_status: "pass",
+  });
+
+  assert.equal(result.intakeState, "ready-for-review");
+  assert.match(result.commentBody, /intake passed/);
+});
+
+for (const quality of [undefined, {}, { overall_status: "not_run" }, {
+  overall_status: "infra_error",
+  failure_class: "infra",
+  spec_compliance_status: "infra_error",
+}]) {
+  test(`applyQualityGateResult keeps incomplete checks awaiting review (${JSON.stringify(quality)})`, () => {
+    const result = applyQualityGateResult(validBaseEvaluation, quality);
+    assert.equal(result.intakeState, "awaiting-review");
+    assert.match(result.commentBody, /quality checks could not complete/);
+    assert.doesNotMatch(result.commentBody, /intake passed/);
+  });
+}
 
 test("applyQualityGateResult links the full quality log artifact", () => {
   const artifactUrl = "https://github.com/github/awesome-copilot/actions/runs/123/artifacts/456";
@@ -567,11 +637,12 @@ test("pinned homepage dispatcher connects to the validated address and preserves
   }
 });
 
-function installMockFetch() {
+function installMockFetch({ repositoryOwner = { type: "User", login: "octo" }, repositoryStatus = 200 } = {}) {
   global.fetch = async (url) => {
     const requestUrl = String(url);
     if (requestUrl === `https://api.github.com/repos/${INTAKE_REPO}`) {
       return jsonResponse({
+        owner: repositoryOwner,
         private: false,
         archived: false,
         created_at: new Date().toISOString(),
@@ -579,7 +650,7 @@ function installMockFetch() {
         subscribers_count: 3,
         forks_count: 0,
         open_issues_count: 4,
-      });
+      }, { status: repositoryStatus });
     }
 
     if (
@@ -601,6 +672,75 @@ function installMockFetch() {
     return jsonResponse({}, { status: 404 });
   };
 }
+
+for (const [type, login, expectedLabel] of [
+  ["Organization", "github", "first party"],
+  ["Organization", "Microsoft", "first party"],
+  ["Organization", "MICROSOFT", "first party"],
+  ["Organization", "GitHub", "first party"],
+  ["Organization", "Azure", "first party"],
+  ["Organization", "azure", "first party"],
+  ["Organization", "dotnet", "first party"],
+  ["Organization", "DotNet", "first party"],
+  ["Organization", "MicrosoftDocs", "first party"],
+  ["Organization", "microsoftdocs", "first party"],
+  ["Organization", "microsoftgraph", "first party"],
+  ["Organization", "MicrosoftGraph", "first party"],
+  ["Organization", "vendor", "third party"],
+  ["Organization", "github-vendor", "third party"],
+  ["User", "microsoft", null],
+  ["User", "octo", null],
+]) {
+  test(`evaluateExternalPluginIssue classifies ${type} owner ${login}`, async () => {
+    installMockFetch({ repositoryOwner: { type, login } });
+    const result = await evaluateExternalPluginIssue({
+      issue: { body: buildIssueBody({ sha: PROVIDED_SHA }) },
+    });
+
+    assert.equal(result.valid, true);
+    assert.equal(result.reviewSignals.repository.ownershipLabel, expectedLabel);
+    const mergedResult = applyQualityGateResult(result, { overall_status: "pass" });
+    assert.equal(mergedResult.reviewSignals.repository.ownershipLabel, expectedLabel);
+    const expectedNote = {
+      "first party": "| Repository owner | Organization-owned (first party: Microsoft/GitHub organization) |",
+      "third party": "| Repository owner | Organization-owned (third party) |",
+    }[expectedLabel];
+    for (const body of [result.commentBody, mergedResult.commentBody]) {
+      if (expectedNote) {
+        assert.ok(body.includes(expectedNote), `expected ownership note in:\n${body}`);
+      } else {
+        assert.doesNotMatch(body, /Repository owner/);
+      }
+    }
+  });
+}
+
+for (const status of [404, 503]) {
+  test(`evaluateExternalPluginIssue does not classify unavailable repository metadata (${status})`, async () => {
+    installMockFetch({ repositoryStatus: status });
+    const result = await evaluateExternalPluginIssue({
+      issue: { body: buildIssueBody({ sha: PROVIDED_SHA }) },
+    });
+
+    assert.equal(result.reviewSignals.repository.ownershipLabel, undefined);
+    if (status === 404) {
+      assert.match(result.errors.join("\n"), /was not found/);
+    } else {
+      assert.match(result.warnings.join("\n"), /could not verify GitHub repository/);
+    }
+  });
+}
+
+test("evaluateExternalPluginIssue classifies ownership even when the submission has no release locator", async () => {
+  installMockFetch({ repositoryOwner: { type: "Organization", login: "github" } });
+  const result = await evaluateExternalPluginIssue({
+    issue: { body: buildIssueBody({}) },
+  });
+
+  assert.equal(result.valid, false);
+  assert.equal(result.reviewSignals.repository.ownershipLabel, "first party");
+  assert.match(result.commentBody, /\| Repository owner \| Organization-owned \(first party/);
+});
 
 test("evaluateExternalPluginIssue fails when ref and sha resolve to different commits", async () => {
   installMockFetch();

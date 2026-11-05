@@ -1,15 +1,20 @@
 // Extension: external-plugin-review-board
 // Kanban board for triaging external plugin submissions with AI review,
-// quick approve/reject, and an issue detail view. Board state is persisted to
-// ./state/board.json (gitignored) so it survives reloads and new sessions.
+// quick approve/reject, and an issue detail view. Board state is persisted under
+// session.workspacePath so writes do not change the extension fingerprint.
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
-import { BoardStore, RECOMMENDATIONS } from "./lib/state.mjs";
+import { CanvasError } from "@github/copilot-sdk/extension";
+import { joinSession as sdkJoinSession, createCanvas as sdkCreateCanvas } from "@github/copilot-sdk/extension";
+import { configureErrorHandoff } from "./error-handoff.mjs";
+const { joinSession, createCanvas } = configureErrorHandoff({ joinSession: sdkJoinSession, createCanvas: sdkCreateCanvas });
+import { BoardStore, isReadyForApproval, reviewBlockedReason, RECOMMENDATIONS } from "./lib/state.mjs";
 import * as gh from "./lib/github.mjs";
 import { buildReviewPrompt, buildRereviewPrompt, REVIEW_FIELDS_SCHEMA } from "./lib/review-prompt.mjs";
 import { startBoardServer, expectedError } from "./lib/server.mjs";
+import { expectedNotice } from "../open-pr-board/lib/errors.mjs";
+import { assertNoPendingFixesRequest, confirmRequestFixes } from "./lib/request-fixes.mjs";
 
 const CANVAS_ID = "external-plugin-review-board";
 const REPO = "github/awesome-copilot";
@@ -18,11 +23,12 @@ const PUBLIC_DIR = path.join(EXT_DIR, "public");
 const GUIDANCE_PATH = path.join(EXT_DIR, "review-guidance.md");
 const DETAIL_TTL_MS = 2 * 60 * 1000;
 
-const store = await new BoardStore(path.join(EXT_DIR, "state", "board.json"), REPO).load();
+let store;
 const servers = new Map();
 const detailCache = new Map();
 let refreshInFlight = null;
 let session;
+const decisionsInFlight = new Set();
 
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -45,11 +51,29 @@ async function resolvePendingDecisions(numbers = store.pendingDecisionNumbers())
     return resolved;
 }
 
+async function resolvePendingFixesRequests(numbers = store.pendingFixesRequestNumbers()) {
+    const resolved = [];
+    for (const number of await numbers) {
+        try {
+            const status = await gh.getIssueStatus(store.state.repo, number);
+            const request = await store.resolvePendingFixesRequest(number, status);
+            if (request) {
+                detailCache.delete(number);
+                resolved.push(number);
+            }
+        } catch (error) {
+            session?.log(`Could not resolve pending fixes request for #${number}: ${error.message}`, { level: "warning" });
+        }
+    }
+    return resolved;
+}
+
 async function refresh() {
     refreshInFlight ??= (async () => {
         try {
             await resolvePendingDecisions();
-            const issues = await gh.listReadyIssues(store.state.repo);
+            await resolvePendingFixesRequests();
+            const issues = await gh.listBoardIssues(store.state.repo);
             detailCache.clear();
             return await store.syncIssues(issues);
         } finally {
@@ -61,15 +85,34 @@ async function refresh() {
 
 async function getIssue(number, { force = false } = {}) {
     const cached = detailCache.get(number);
-    if (!force && cached && Date.now() - cached.at < DETAIL_TTL_MS) return cached.data;
-    const data = await gh.getIssueDetail(store.state.repo, number);
-    detailCache.set(number, { at: Date.now(), data });
-    return data;
+    if (!force && cached?.data && Date.now() - cached.at < DETAIL_TTL_MS) return cached.data;
+    const request = {};
+    detailCache.set(number, request);
+    try {
+        const data = await gh.getIssueDetail(store.state.repo, number);
+        if (detailCache.get(number) === request) detailCache.set(number, { at: Date.now(), data });
+        return data;
+    } finally {
+        if (detailCache.get(number) === request) detailCache.delete(number);
+    }
 }
 
 async function startReview({ numbers, instanceId, send }) {
     const items = store.pendingReview(numbers);
-    if (!items.length) return { queued: [], message: "Nothing to review — all items already have an AI review." };
+    if (!items.length) {
+        const wanted = numbers?.length ? new Set(numbers.map(Number)) : null;
+        const blocked = store.snapshot().items.filter((item) =>
+            !item.decision && !item.pendingDecision && !item.reviewEligible &&
+            item.reviewStatus !== "queued" &&
+            (wanted ? wanted.has(item.number) : item.reviewStatus !== "reviewed"),
+        ).length;
+        return {
+            queued: [],
+            message: blocked
+                ? `Nothing to review — ${blocked} submission(s) blocked by intake. AI review requires ready-for-review with no pending intake labels. Check the intake feedback on the issues and refresh after intake completes.`
+                : "Nothing to review — no eligible unreviewed items remain.",
+        };
+    }
     const queued = items.map((item) => item.number);
     const snapshots = await store.markQueued(queued);
     const prompt = buildReviewPrompt({
@@ -95,8 +138,12 @@ const MAX_GUIDANCE_LENGTH = 4000;
 
 async function startRereview({ number, guidance, instanceId, send }) {
     const item = store.getItem(Number(number));
-    if (item.decision) throw new Error(`#${item.number} was already actioned (${item.decision.kind}).`);
-    if (item.reviewStatus === "queued") throw new Error(`#${item.number} is already queued for review.`);
+    if (item.decision) throw expectedNotice(`#${item.number} was already actioned (${item.decision.kind}).`);
+    if (item.pendingDecision) throw expectedNotice(`#${item.number} has a posted command awaiting workflow confirmation.`);
+    if (item.reviewStatus === "queued") throw expectedNotice(`#${item.number} is already queued for review.`);
+    if (!isReadyForApproval(item.labels ?? [])) {
+        throw expectedNotice(`#${item.number}: ${reviewBlockedReason(item.labels)}`);
+    }
     const text = String(guidance ?? "").trim().slice(0, MAX_GUIDANCE_LENGTH);
     const snapshots = await store.markQueued([item.number], { rereviewGuidance: text || null });
     const prompt = buildRereviewPrompt({
@@ -123,27 +170,43 @@ async function startRereview({ number, guidance, instanceId, send }) {
 function stripCommand(text, command) {
     return String(text ?? "")
         .trim()
-        .replace(new RegExp(`^/${command}\\b`, "i"), "")
+        .replace(new RegExp(`^/${command}(?![\\w-])`, "i"), "")
         .trim();
 }
 
 async function postDecision({ number, kind, comment }) {
+    if (decisionsInFlight.has(number)) throw expectedNotice(`#${number} already has a GitHub action in progress.`);
+    decisionsInFlight.add(number);
+    try {
+        return await postDecisionCommand({ number, kind, comment });
+    } finally {
+        decisionsInFlight.delete(number);
+    }
+}
+
+async function postDecisionCommand({ number, kind, comment }) {
     if (kind !== "approve" && kind !== "reject") throw new Error(`Unknown decision "${kind}".`);
     const item = store.getItem(number);
-    if (item.decision) throw new Error(`#${number} was already actioned (${item.decision.kind}).`);
+    if (item.decision) throw expectedNotice(`#${number} was already actioned (${item.decision.kind}).`);
+    if (item.pendingDecision) throw expectedNotice(`#${number} already has a posted command awaiting workflow confirmation. Refresh the board.`);
+    assertNoPendingFixesRequest(item, number);
 
     const status = await gh.getIssueStatus(store.state.repo, number);
-    if (status.state !== "OPEN") throw new Error(`#${number} is ${status.state.toLowerCase()}. Refresh the board.`);
-    if (kind === "approve" && !status.labels.includes("ready-for-review")) {
-        throw new Error(`#${number} is no longer labelled ready-for-review, so /approve would be ignored.`);
+    if (status.state !== "OPEN") throw expectedNotice(`#${number} is ${status.state.toLowerCase()}. Refresh the board.`);
+    if (kind === "approve" && !isReadyForApproval(status.labels)) {
+        throw expectedNotice(`#${number} is pending intake or is no longer ready-for-review, so /approve would be ignored.`);
     }
 
     const text = stripCommand(comment, kind);
-    if (kind === "reject" && !text) throw new Error("Reject decisions require a non-empty reason.");
+    if (kind === "reject" && !text) throw expectedNotice("Reject decisions require a non-empty reason.");
     const body = kind === "approve" ? (text ? `/approve\n\n${text}` : "/approve") : text ? `/reject ${text}` : "/reject";
     const commentUrl = await gh.postComment(store.state.repo, number, body);
     const pendingDecision = { kind, comment: text, body, commentUrl, at: new Date().toISOString() };
-    await store.recordPendingDecision(number, pendingDecision);
+    try {
+        await store.recordPendingDecision(number, pendingDecision);
+    } catch (error) {
+        throw new Error(`GitHub was updated, but the board could not record the decision: ${error.message}. Refresh and inspect GitHub before retrying.`, { cause: error });
+    }
     for (const delay of [1000, 2000, 4000]) {
         await sleep(delay);
         const resolved = await resolvePendingDecisions([number]);
@@ -153,11 +216,67 @@ async function postDecision({ number, kind, comment }) {
     return { number, ...pendingDecision, pending: true };
 }
 
+async function postFreeformComment({ number, body }) {
+    const text = gh.normalizeFreeformComment(body);
+    store.getItem(number);
+    if (decisionsInFlight.has(number)) throw expectedNotice(`#${number} already has a GitHub action in progress.`);
+    decisionsInFlight.add(number);
+    try {
+        const commentUrl = await gh.postComment(store.state.repo, number, text);
+        detailCache.delete(number);
+        return { number, commentUrl };
+    } finally {
+        decisionsInFlight.delete(number);
+    }
+}
+
+// Request fixes keeps the issue open, so it bypasses the pending-decision flow. The router swaps the
+// intake labels, and the board picks that up with a refresh once the label lands.
+async function postRequestFixes({ number, comment }) {
+    const body = gh.buildRequestFixesCommand(comment);
+    const item = store.getItem(number);
+    if (item.decision) throw expectedNotice(`#${number} was already actioned (${item.decision.kind}).`);
+    if (item.pendingDecision) throw expectedNotice(`#${number} already has a posted command awaiting workflow confirmation. Refresh the board.`);
+    assertNoPendingFixesRequest(item, number);
+    if (decisionsInFlight.has(number)) throw expectedNotice(`#${number} already has a GitHub action in progress.`);
+    decisionsInFlight.add(number);
+    try {
+        const status = await gh.getIssueStatus(store.state.repo, number);
+        if (status.state !== "OPEN") throw expectedNotice(`#${number} is ${status.state.toLowerCase()}. Refresh the board.`);
+        if (status.labels.includes("requires-submitter-fixes")) {
+            throw expectedNotice(`#${number} is already waiting on submitter fixes.`);
+        }
+        const commentUrl = await gh.postComment(store.state.repo, number, body);
+        const pendingFixesRequest = { body, commentUrl, at: new Date().toISOString() };
+        try {
+            await store.recordPendingFixesRequest(number, pendingFixesRequest);
+        } catch (error) {
+            throw new Error(`GitHub was updated, but the board could not record the fixes request: ${error.message}. Refresh and inspect GitHub before retrying.`, { cause: error });
+        }
+        detailCache.delete(number);
+        const confirmed = await confirmRequestFixes({
+            number,
+            getIssueStatus: (issueNumber) => gh.getIssueStatus(store.state.repo, issueNumber),
+            onConfirmed: (latest) => store.resolvePendingFixesRequest(number, latest),
+            refresh,
+            sleep,
+            log: (error) => session?.log(
+                `Could not confirm fixes request for #${number}: ${error?.stack ?? error}`,
+                { level: "warning" },
+            ),
+        });
+        return { number, commentUrl, pending: !confirmed };
+    } finally {
+        decisionsInFlight.delete(number);
+    }
+}
+
 function boardSummary() {
     const snapshot = store.snapshot();
     return {
         repo: snapshot.repo,
         lastRefreshedAt: snapshot.lastRefreshedAt,
+        pendingReviewCount: store.pendingReview().length,
         counts: Object.fromEntries(
             snapshot.columns.map((column) => [column.id, snapshot.items.filter((i) => i.column === column.id).length]),
         ),
@@ -166,12 +285,17 @@ function boardSummary() {
             title: item.title,
             author: item.author,
             column: item.column,
+            reviewEligible: item.reviewEligible,
+            reviewBlockedReason: item.reviewBlockedReason,
             aiRecommendation: item.review?.recommendation ?? null,
             manualOverride: item.manualColumn ?? null,
             suggestedComment: item.review?.suggestedComment ?? null,
             decision: item.decision ? { kind: item.decision.kind, at: item.decision.at } : null,
             pendingDecision: item.pendingDecision
                 ? { kind: item.pendingDecision.kind, at: item.pendingDecision.at }
+                : null,
+            pendingFixesRequest: item.pendingFixesRequest
+                ? { at: item.pendingFixesRequest.at, commentUrl: item.pendingFixesRequest.commentUrl }
                 : null,
         })),
     };
@@ -189,6 +313,9 @@ function routesFor(instanceId) {
         "POST /api/issue/:number": ({ number }) => getIssue(number, { force: true }),
         "POST /api/decision": ({ body }) =>
             postDecision({ number: Number(body.number), kind: body.kind, comment: body.comment }),
+        "POST /api/comment": ({ body }) => postFreeformComment({ number: Number(body.number), body: body.body }),
+        "POST /api/request-fixes": ({ body }) =>
+            postRequestFixes({ number: Number(body.number), comment: body.comment }),
     };
     // Board errors are user-facing messages (e.g. "already actioned", gh failures); surface only the
     // message text, never the stack, and log the full error for debugging.
@@ -203,7 +330,8 @@ function routesFor(instanceId) {
                         level: "warning",
                         ephemeral: true,
                     });
-                    throw expectedError(String(error?.message ?? "Request failed"), 400);
+                    throw Object.assign(expectedError(String(error?.message ?? "Request failed"), 400),
+                        { handoff: error.handoff !== false });
                 }
             },
         ]),
@@ -213,6 +341,7 @@ function routesFor(instanceId) {
 function wrap(fn) {
     return async (ctx) => {
         try {
+            if (!store) throw new CanvasError("not_ready", "The extension is still starting. Retry the action.");
             return await fn(ctx);
         } catch (error) {
             if (error instanceof CanvasError) throw error;
@@ -232,18 +361,18 @@ session = await joinSession({
             actions: [
                 {
                     name: "get_board",
-                    description: "Return every board item with its column, AI recommendation, suggested comment, and decision.",
+                    description: "Return every board item with its review eligibility, blocked reason, column, AI recommendation, suggested comment, and decision.",
                     handler: wrap(() => boardSummary()),
                 },
                 {
                     name: "refresh",
-                    description: "Fetch open ready-for-review external plugin issues; adds new ones and removes closed ones.",
+                    description: "Fetch open external plugin submissions in active intake states; adds new ones and removes inactive ones.",
                     handler: wrap(() => refresh()),
                 },
                 {
                     name: "start_review",
                     description:
-                        "Queue items for AI review (defaults to every item without a review) and return review instructions to follow.",
+                        "Queue intake-ready items for AI review (defaults to eligible items without a review) and return review instructions to follow. Pending intake submissions cannot be forced into review.",
                     inputSchema: {
                         type: "object",
                         additionalProperties: false,
@@ -316,6 +445,7 @@ session = await joinSession({
                 },
             ],
             open: async (ctx) => {
+                if (!store) throw new CanvasError("not_ready", "The extension is still starting. Retry opening it.");
                 let entry = servers.get(ctx.instanceId);
                 if (!entry) {
                     entry = await startBoardServer({
@@ -330,6 +460,7 @@ session = await joinSession({
                             },
                         },
                     });
+
                     servers.set(ctx.instanceId, entry);
                 }
                 if (!store.state.lastRefreshedAt) {
@@ -350,3 +481,11 @@ session = await joinSession({
         }),
     ],
 });
+
+if (!session.workspacePath) {
+    throw new Error("External Plugin Review Board requires a session workspace for persistent state. Enable infinite sessions.");
+}
+store = await new BoardStore(
+    path.join(session.workspacePath, "extensions", CANVAS_ID, "state", "board.json"),
+    REPO,
+).load();

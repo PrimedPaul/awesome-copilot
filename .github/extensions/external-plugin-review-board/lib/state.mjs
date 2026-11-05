@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
+import { expectedNotice } from "../../open-pr-board/lib/errors.mjs";
 
 export const RECOMMENDATIONS = ["straight-reject", "probably-reject", "needs-review", "accept"];
 
@@ -15,6 +16,70 @@ export const COLUMNS = [
 ];
 
 const HISTORY_LIMIT = 200;
+export const FIRST_PARTY_LABEL = "first party";
+const MANUAL_INTAKE_OVERRIDE_LABEL = "intake-manually-overridden";
+const PENDING_INTAKE_LABELS = ["awaiting-review", "requires-submitter-fixes"];
+
+export function isReadyForApproval(labels) {
+    return reviewBlockedReason(labels) === null;
+}
+
+export function reviewBlockedReason(labels = []) {
+    if (labels.includes("requires-submitter-fixes")) {
+        return "Submitter fixes required. Check the intake feedback on the issue; AI review and approval are unavailable until intake marks it ready-for-review.";
+    }
+    if (labels.some((label) => PENDING_INTAKE_LABELS.includes(label))) {
+        return "Automated intake is pending. AI review and approval are unavailable until intake marks it ready-for-review.";
+    }
+    if (!labels.includes("ready-for-review")) {
+        return "Missing ready-for-review status. AI review and approval are unavailable until intake marks it ready-for-review.";
+    }
+    return null;
+}
+
+// Validated submissions from first-party organizations skip AI triage and land in Accept. Only
+// cards without an AI review, queued review, or manual bucket are fast-tracked so maintainer
+// choices are kept; dragging a card back to Unreviewed opts it out so it gets a normal AI review.
+function applyFirstPartyFastTrack(item) {
+    if (
+        !item.labels?.includes(FIRST_PARTY_LABEL) ||
+        !item.labels?.includes("ready-for-review") ||
+        item.labels?.some((label) => PENDING_INTAKE_LABELS.includes(label)) ||
+        item.labels?.includes(MANUAL_INTAKE_OVERRIDE_LABEL) ||
+        item.fastTrackDismissed ||
+        item.decision ||
+        item.review ||
+        item.manualColumn ||
+        item.reviewStatus === "queued"
+    ) {
+        return false;
+    }
+    item.review = {
+        recommendation: "accept",
+        fastTracked: true,
+        rationale:
+            "First-party submission (repository owned by a Microsoft/GitHub organization) that passed automated intake validation; fast-tracked to approval.",
+        suggestedComment: "/approve",
+        reviewedAt: new Date().toISOString(),
+    };
+    item.reviewStatus = "reviewed";
+    return true;
+}
+
+function clearFirstPartyFastTrack(item) {
+    if (
+        (item.labels?.includes(FIRST_PARTY_LABEL) &&
+            item.labels?.includes("ready-for-review") &&
+            !item.labels?.includes(MANUAL_INTAKE_OVERRIDE_LABEL) &&
+            !item.labels?.some((label) => PENDING_INTAKE_LABELS.includes(label))) ||
+        !item.review?.fastTracked ||
+        item.reviewStatus === "queued"
+    ) {
+        return;
+    }
+    item.review = null;
+    if (!item.decision && !item.manualColumn) item.reviewStatus = "unreviewed";
+}
 
 function newQueueId() {
     return randomBytes(6).toString("base64url");
@@ -80,7 +145,7 @@ export class BoardStore {
 
     getItem(number) {
         const item = this.state.items[String(number)];
-        if (!item) throw new Error(`Issue #${number} is not on the board. Refresh first.`);
+        if (!item) throw expectedNotice(`Issue #${number} is not on the board. Refresh first.`);
         return item;
     }
 
@@ -92,7 +157,11 @@ export class BoardStore {
             repo: this.state.repo,
             lastRefreshedAt: this.state.lastRefreshedAt,
             columns: COLUMNS,
-            items,
+            items: items.map((item) => ({
+                ...item,
+                reviewEligible: isReadyForApproval(item.labels ?? []),
+                reviewBlockedReason: reviewBlockedReason(item.labels),
+            })),
             history: this.state.history.slice(0, 50),
         };
     }
@@ -101,9 +170,13 @@ export class BoardStore {
         const incoming = new Map(issues.map((issue) => [String(issue.number), issue]));
         const added = [];
         const removed = [];
+        const fastTracked = [];
         for (const [key, issue] of incoming) {
             const existing = this.state.items[key];
             if (existing) {
+                if (existing.pendingFixesRequest && issue.labels.includes("requires-submitter-fixes")) {
+                    delete existing.pendingFixesRequest;
+                }
                 Object.assign(existing, {
                     title: issue.title,
                     author: issue.author,
@@ -123,6 +196,9 @@ export class BoardStore {
                 };
                 added.push(issue.number);
             }
+            const item = this.state.items[key];
+            if (applyFirstPartyFastTrack(item)) fastTracked.push(issue.number);
+            else clearFirstPartyFastTrack(item);
         }
         for (const key of Object.keys(this.state.items)) {
             if (!incoming.has(key)) {
@@ -132,11 +208,17 @@ export class BoardStore {
         }
         this.state.lastRefreshedAt = new Date().toISOString();
         await this.commit();
-        return { added, removed, total: incoming.size };
+        return { added, removed, fastTracked, total: incoming.size };
     }
 
     pendingReview(numbers) {
-        const all = Object.values(this.state.items).filter((item) => !item.decision && item.reviewStatus !== "queued");
+        const all = Object.values(this.state.items).filter(
+            (item) =>
+                isReadyForApproval(item.labels ?? []) &&
+                !item.decision &&
+                !item.pendingDecision &&
+                item.reviewStatus !== "queued",
+        );
         if (numbers?.length) {
             const wanted = new Set(numbers.map(Number));
             return all.filter((item) => wanted.has(item.number));
@@ -218,6 +300,7 @@ export class BoardStore {
         const item = this.getItem(number);
         if (item.decision) throw new Error(`#${number} has already been actioned.`);
         if (column === "unreviewed") {
+            if (item.review?.fastTracked || item.labels?.includes(FIRST_PARTY_LABEL)) item.fastTrackDismissed = true;
             item.review = null;
             item.reviewStatus = "unreviewed";
             item.manualColumn = null;
@@ -239,6 +322,27 @@ export class BoardStore {
         const item = this.getItem(number);
         item.pendingDecision = pendingDecision;
         await this.commit();
+    }
+
+    async recordPendingFixesRequest(number, pendingFixesRequest) {
+        const item = this.getItem(number);
+        item.pendingFixesRequest = pendingFixesRequest;
+        await this.commit();
+    }
+
+    async resolvePendingFixesRequest(number, status) {
+        const item = this.state.items[String(number)];
+        if (!item?.pendingFixesRequest || !(status.labels ?? []).includes("requires-submitter-fixes")) return null;
+        const request = item.pendingFixesRequest;
+        delete item.pendingFixesRequest;
+        await this.commit();
+        return request;
+    }
+
+    async pendingFixesRequestNumbers() {
+        return Object.values(this.state.items)
+            .filter((item) => item.pendingFixesRequest && !item.decision)
+            .map((item) => item.number);
     }
 
     async resolvePendingDecision(number, status) {
