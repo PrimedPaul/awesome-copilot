@@ -34,6 +34,8 @@ permissions:
 jobs:
   lifecycle-check:
     name: Plan approval lifecycle validation
+    # Upstream sync PRs from fork-sync-watchdog carry upstream's package.json, which lacks the fork:lifecycle scripts.
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'fork-sync') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

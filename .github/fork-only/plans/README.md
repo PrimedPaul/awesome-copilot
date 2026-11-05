@@ -54,6 +54,8 @@ Use `Review: waived` plus a `Reason:` line instead of `completed` if you are exp
 
 The check also governs `Refs #<N>` → `Fixes #<N>`: an implementation PR may only carry `Fixes #<N>` once the linked plan is `approved` with valid lifecycle evidence, and only if GitHub's own `closingIssuesReferences` for that PR agrees and no other open PR already closes the same issue.
 
+Pull requests labelled `fork-sync` skip this check. The Fork Sync Watchdog applies that label to its upstream sync PRs, which contain no plans but carry upstream's `package.json` without the fork's lifecycle scripts.
+
 Plans are fork-only and are never promoted upstream.
 
 ## Lifecycle tooling maintenance
