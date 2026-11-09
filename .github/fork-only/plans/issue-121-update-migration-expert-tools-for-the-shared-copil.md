@@ -2,82 +2,68 @@
 issue: 121
 title: 'Update migration expert tools for the shared Copilot harness'
 scope: agent
-status: draft
+status: approved
+lifecycle:
+  schema: 1
+  planHash: 'sha256:30320d9ea773080e956f9b0f8025f47f04dca96aa5ae20b0cdcbea83a7ef002c'
+  requirements:
+    status: answered
+  review:
+    status: completed
+    verdict: no-material-concerns
+    evidence: 'https://github.com/PrimedPaul/awesome-copilot/issues/121#issuecomment-6750497174'
+  approval:
+    status: approved
+    approver: PrimedPaul
+    evidence: 'https://github.com/PrimedPaul/awesome-copilot/issues/121#issuecomment-6750458773'
 ---
 
 # Plan: issue #121
 
-## Issue summary
+## Decision record
 
-- **Tools swap** — replace the `tools` frontmatter in `agents/oracle-to-postgres-migration-expert.agent.md` with exactly `[execute, read, edit, search, todo, web]`.
-- **Shell wording** — replace the literal `runInTerminal` in *Your Approach → Act directly* with harness-neutral wording, keeping direct execution.
-- **Gate clarification** — make the existing confirmation gates explicit without relying on `vscode/askQuestions`; fall back to asking in chat.
-- **Restatement gap** — the issue says "without changing the migration workflow", yet adds new fallback wording; I read that as clarification only, no new phases or gates.
+1. **Manual harness verification** — the maintainer chose option (a): run the VS Code Copilot-harness check before merge. The check covers tool availability, a shell build operation, documentation retrieval, and stopping at a user-confirmation gate. [Issue comment](https://github.com/PrimedPaul/awesome-copilot/issues/121#issuecomment-6667804743)
+2. **Plugin version** — the maintainer chose option (a): bump `1.1.3` to `1.1.4`. [Issue comment](https://github.com/PrimedPaul/awesome-copilot/issues/121#issuecomment-6667804743)
+3. **Database guardrail** — the maintainer chose option (a): explicitly prohibit database-mutating commands. [Issue comment](https://github.com/PrimedPaul/awesome-copilot/issues/121#issuecomment-6667804743)
+4. **Database command boundary** — allow read-only database inspection only when needed and authorized; prohibit direct database mutations. Source: maintainer confirmed the recommended answer in this session on 2026-11-09.
+5. **Confirmation gates** — require explicit user confirmation before every phase transition, while preserving existing handoffs and waiting for user-run integration-test results; use chat when no interactive question tool is available. Source: maintainer confirmed the recommended answer in this session on 2026-11-09.
+6. **Documentation lookup** — direct the agent to consult authoritative documentation when version-specific Oracle, PostgreSQL, Npgsql, or .NET guidance is needed. Source: maintainer confirmed the recommended answer in this session on 2026-11-09.
 
-## Grilling
+## Scope and constraints
 
-### Ambiguities
+- Update only the Oracle-to-PostgreSQL agent, its plugin version, and generated build outputs that actually change.
+- Preserve the migration phases, existing test handoffs, and all unrelated migration content.
+- Change only the `tools` frontmatter field; keep `description`, `model`, and `name` unchanged, and do not add `target`.
+- Do not add MCP servers, skills, memory configuration, hooks, enforcement code, or workflow changes.
+- Keep the confirmation and database restrictions explicit as agent instructions; they are not technical enforcement boundaries.
+- Plugin version is currently `1.1.3`; use the agreed patch version `1.1.4`.
+- Run the repository build and validators and normalize line endings.
+- Seed plan file is fork-only and is not promoted upstream.
 
-- **"Harness-neutral wording"** — the issue gives "use the available shell tool" only as an example; exact text is my choice.
-- **Where gate wording lives** — the issue does not say whether to add a new section or edit *Your Approach* bullets; this affects diff size.
-- **Verification evidence** — the acceptance criteria require a live VS Code Copilot-harness session, which cannot be run in CI or by this planner.
-- **"web" semantics** — the issue does not say whether the body should mention using `web` for documentation lookup; it is only listed in the rationale.
+## Implementation plan
 
-### Scope
-
-- **IN** — `tools:` line in frontmatter.
-- **IN** — *Your Approach* bullets "Act directly", "Suggest, don't assume", "One step at a time".
-- **IN** — `plugins/oracle-to-postgres-migration-expert/plugin.json` version bump.
-- **OUT** — `target`, `model`, `name`, `description` frontmatter.
-- **OUT** — MCP servers, skills, memory configuration, migration-content fixes (Phases 1–6 bodies).
-- **OUT** — Rewording the phase hand-off lines, except where needed for the fallback; leave them as-is.
-
-### Constraints
-
-- **Version bump** — `plugin.json` is currently `1.1.3`; the plugin version must be bumped for upstream promotion.
-- **Frontmatter** — must remain valid YAML with `description`, `model`, `name` unchanged.
-- **Docs** — `docs/README.agents.md` may list tools or descriptions; confirm `npm run build` leaves no unintended diff.
-- **Line endings** — run `bash eng/fix-line-endings.sh` before commit.
-- **Fork-only tooling** — plan files under `.github/fork-only/` are never promoted upstream.
-
-### Assumptions I am making
-
-- **Prose is not enforcement** — the issue states this itself; I add wording, not hooks or permission controls.
-- **Memory removal accepted** — dropping `vscode/memory` is intended, and the body does not depend on it (I read the whole agent file and found no memory references).
-- **Askquestions not referenced** — the body does not currently mention `vscode/askQuestions` by name, so the change is additive wording only.
-- **Patch vs minor** — the change is wording plus tool list, not new capability for users.
-- **No docs table of tools** — I have not read `docs/README.agents.md`; assuming it carries no tool list.
-
-## Plan
-
-- **`agents/oracle-to-postgres-migration-expert.agent.md` frontmatter** — change line `tools: [vscode/memory, vscode/runCommand, vscode/askQuestions, execute, read, edit, search, todo]` to `tools: [execute, read, edit, search, todo, web]`.
-- **`agents/oracle-to-postgres-migration-expert.agent.md` — *Your Approach → Act directly*** — replace `Use \`edit\`, \`runInTerminal\`, \`read\`, and \`search\` tools` with "Use the available edit, shell, read, search, and web tools"; keep "rather than delegating to subagents".
-- **`agents/oracle-to-postgres-migration-expert.agent.md` — *Your Approach*, new bullet "Confirm at gates"** — add after "One step at a time":
-  - ask for explicit confirmation before advancing to the next step;
-  - use an interactive question tool if one is available, otherwise ask in chat and wait for an explicit reply;
-  - never advance automatically when no reply or no question tool is present.
-- **`agents/oracle-to-postgres-migration-expert.agent.md` — *Guidelines*, edit the "Never apply database changes directly" bullet** — add that prose is not an enforcement boundary and that the agent must not run database-mutating commands (e.g. `psql`, `sqlplus`) even though shell is enabled.
-- **`agents/oracle-to-postgres-migration-expert.agent.md` — Phases 3 and 6 hand-off lines** — leave unchanged; they already say "Do not advance until they confirm results."
-- **`plugins/oracle-to-postgres-migration-expert/plugin.json`** — bump `version` from `1.1.3` to `1.1.4` (patch: tool aliases and wording; no new skill or capability).
-- **Generated docs** — run `npm run build`; commit only regenerated files that actually change.
+1. In `agents/oracle-to-postgres-migration-expert.agent.md` (frontmatter at line 4), replace the `tools` list with exactly `[execute, read, edit, search, todo, web]`. Leave other frontmatter fields unchanged.
+2. In **Your Approach → Act directly** (currently line 17), remove the `runInTerminal` requirement and describe using the available shell/`execute` tool to run commands, while retaining direct execution rather than subagent delegation.
+3. Clarify the approach instructions so the agent:
+   - requests explicit confirmation before each phase transition and waits for an affirmative reply;
+   - preserves the current integration-test handoffs and does not proceed until the user reports results;
+   - asks in chat and waits if no interactive question tool is available;
+   - consults authoritative documentation when version-specific Oracle, PostgreSQL, Npgsql, or .NET guidance is needed.
+4. Clarify the existing **Never apply database changes directly** guideline: generate scripts and instructions for the user to apply; do not execute database-mutating commands (including via shell). Read-only database inspection is allowed only when needed and authorized. Do not change the migration phases or schema policy.
+5. In `plugins/oracle-to-postgres-migration-expert/plugin.json` (currently line 5), bump version `1.1.3` to `1.1.4`.
+6. Run `npm run build` and include its generated README, category README, and marketplace outputs in the change where they differ. Run `bash eng/fix-line-endings.sh`, `npm run skill:validate`, and `npm run plugin:validate`.
+7. Leave the live VS Code Copilot-harness verification for the maintainer before merge; record results, including any Local-harness alias check if available.
 
 ## Acceptance criteria
 
-- [ ] `tools` is exactly `[execute, read, edit, search, todo, web]`.
-- [ ] No other frontmatter field changed and no `target` added.
-- [ ] `grep runInTerminal agents/oracle-to-postgres-migration-expert.agent.md` returns nothing.
-- [ ] Body states confirmation before advancing, user-run integration tests, and user-applied DB changes.
-- [ ] Body states the chat fallback when no question tool exists.
-- [ ] No MCP, skill, model, or memory changes in the diff.
-- [ ] `plugin.json` version bumped.
-- [ ] Manual check in a VS Code Copilot-harness session: tools resolve, a shell build runs, docs retrieval works, agent stops at a gate.
-- [ ] Standard aliases confirmed in Local harness, if available.
-
-## Open questions
-
-- **Q1 — manual harness verification** — options: (a) maintainer runs the VS Code Copilot-harness check before merge; (b) record as untested in the PR body. I would pick (a).
-- **Q2 — plugin version level** — options: (a) patch `1.1.4`; (b) minor `1.2.0` because `web` adds documentation retrieval. I would pick (a), since no new skill or workflow is added.
-- **Q3 — DB-mutation guardrail wording** — options: (a) add an explicit "do not run database-mutating commands" sentence; (b) only clarify the existing bullet. I would pick (a), because shell is enabled.
+- `tools` is exactly `[execute, read, edit, search, todo, web]`; no other frontmatter field changes and no `target` is added.
+- The agent body contains no `runInTerminal` reference and still directs direct execution.
+- Instructions require explicit confirmation before every phase transition, with a chat fallback and no automatic advancement; the existing integration-test handoffs remain.
+- The agent explicitly prohibits database-mutating commands, says the user applies generated database scripts, and limits read-only inspection to cases that are needed and authorized.
+- The agent advises consulting authoritative documentation for version-specific guidance.
+- `plugin.json` version is `1.1.4`; no MCP, skill, model, memory, hook, workflow, or unrelated migration-content change is introduced.
+- `npm run build`, `npm run skill:validate`, and `npm run plugin:validate` pass; generated outputs are included if changed, and line endings are normalized.
+- Before merge, the maintainer verifies the VS Code Copilot harness can resolve the aliases, run a shell build, retrieve documentation, and stop at a confirmation gate; confirm Local compatibility if available.
 
 ## Verification
 
@@ -85,6 +71,6 @@ status: draft
 - `bash eng/fix-line-endings.sh`
 - `npm run skill:validate`
 - `npm run plugin:validate`
-- `git diff --stat` — only the agent file, `plugin.json`, and any regenerated docs.
-- `grep -n "runInTerminal\|vscode/" agents/oracle-to-postgres-migration-expert.agent.md` — no matches.
-- Manual VS Code Copilot-harness session per the acceptance criteria.
+- Inspect the diff to confirm only the planned agent/plugin/generated-output paths and this resolved plan changed.
+- Confirm no `runInTerminal` reference remains and the frontmatter tool list is exact.
+- The maintainer performs the VS Code Copilot-harness check before merge; do not claim it passed until its result is available.
