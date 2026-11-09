@@ -1,7 +1,6 @@
 ---
 name: 'Plan Reviewer'
 description: 'Independently reviews a revised implementation plan for feasibility, testable acceptance criteria, domain correctness, scope, and decision fidelity before approval.'
-model: 'GPT-5.6 Sol'
 tools:
   - read
   - github
