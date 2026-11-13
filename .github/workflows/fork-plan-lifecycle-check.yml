@@ -1,7 +1,7 @@
 # Fork-only. Deterministically enforces the plan approval lifecycle documented
 # in .github/fork-only/plans/README.md: an approved plan must carry
 # machine-readable lifecycle evidence (requirements answered, review
-# completed/waived, maintainer /approve-plan comment matching a content hash),
+# completed/waived, an owner-authored "Approve plan" comment on the PR),
 # and "Fixes #N" may only be armed on an implementation PR once that evidence
 # checks out and GitHub itself reports the closing reference. Never proposed
 # upstream itself.
@@ -84,7 +84,7 @@ jobs:
               '- An implementation PR touches something outside the agent/plugin/skills surface and its matching plan file.',
               '- The plan is `status: approved` but its `lifecycle` frontmatter block is missing or incomplete.',
               '- `lifecycle.planHash` does not match the plan\'s current content (re-approve after edits).',
-              '- No matching `/approve-plan` comment from the repository owner was found on the issue or PR.',
+              '- No exact `Approve plan` comment from the repository owner was found on the planning PR, or lifecycle.approval.evidence does not link to it.',
               '- `Fixes #N` was used before the plan was approved, or GitHub does not report this PR as closing the issue.',
               '- Tooling-only changes need the `fork-lifecycle-maintenance` label and must stay within the lifecycle maintenance allowlist.',
               '- Lifecycle validator regression tests failed.',

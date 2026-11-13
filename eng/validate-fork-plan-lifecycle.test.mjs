@@ -68,7 +68,7 @@ test("computePlanHash normalizes CRLF but preserves trailing bytes", () => {
 
 // --- extractIssueLink ---
 
-test("extractIssueLink accepts a Refs marker", () => {
+test("extractIssueLink accepts a native Refs issue link without a hidden marker", () => {
   const result = extractIssueLink("Some description.\n\nRefs #66\n");
   assert.deepEqual(result, { keyword: "Refs", issue: 66, errors: [] });
 });
@@ -317,93 +317,88 @@ test("validatePlanDocument rejects a mismatched issue number", () => {
 
 // --- parseApprovalComment ---
 
-test("parseApprovalComment ignores unrelated comments", () => {
+test("parseApprovalComment accepts only the exact short phrase", () => {
+  assert.deepEqual(parseApprovalComment("  Approve plan \n"), { approved: true });
+  assert.deepEqual(parseApprovalComment("APPROVE PLAN"), { approved: true });
+  assert.equal(parseApprovalComment("Approve plan #66"), null);
+  assert.equal(parseApprovalComment("/approve-plan\nIssue: #66"), null);
   assert.equal(parseApprovalComment("Looks good to me!"), null);
-});
-
-test("parseApprovalComment parses a completed-review approval", () => {
-  const parsed = parseApprovalComment(
-    "/approve-plan\nIssue: #66\nPlan-Hash: sha256:abc123\nReview: completed\n"
-  );
-  assert.deepEqual(parsed, { issue: 66, hash: "sha256:abc123", review: "completed", reason: null });
-});
-
-test("parseApprovalComment parses a waived-review approval with a reason", () => {
-  const parsed = parseApprovalComment(
-    "/approve-plan\nIssue: #66\nPlan-Hash: sha256:abc123\nReview: waived\nReason: trivial doc fix\n"
-  );
-  assert.equal(parsed.review, "waived");
-  assert.equal(parsed.reason, "trivial doc fix");
-});
-
-test("parseApprovalComment throws on a waived review with no reason", () => {
-  assert.throws(
-    () => parseApprovalComment("/approve-plan\nIssue: #66\nPlan-Hash: sha256:abc123\nReview: waived\n"),
-    /must include a "Reason:"/
-  );
-});
-
-test("parseApprovalComment throws when the issue line is missing", () => {
-  assert.throws(
-    () => parseApprovalComment("/approve-plan\nPlan-Hash: sha256:abc123\nReview: completed\n"),
-    /Issue: #N/
-  );
 });
 
 // --- validateApprovalEvidence ---
 
-test("validateApprovalEvidence accepts a matching owner comment", () => {
+test("validateApprovalEvidence accepts the linked exact owner comment on the PR", () => {
   const errors = validateApprovalEvidence({
     lifecycle: {
-      approval: { status: "approved" },
+      approval: {
+        status: "approved",
+        approver: "maintainer",
+        evidence: "https://github.com/owner/repo/pull/66#issuecomment-1",
+      },
       review: { status: "completed" },
     },
-    planHash: "sha256:abc123",
     issueNumber: 66,
     comments: [
-      { author: "maintainer", body: "/approve-plan\nIssue: #66\nPlan-Hash: sha256:abc123\nReview: completed\n" },
+      {
+        author: "maintainer",
+        body: "Approve plan",
+        url: "https://github.com/owner/repo/pull/66#issuecomment-1",
+      },
     ],
     ownerLogin: "maintainer",
   });
   assert.deepEqual(errors, []);
 });
 
-test("validateApprovalEvidence rejects an approval comment from a non-owner", () => {
+test("validateApprovalEvidence rejects a comment from a non-owner", () => {
   const errors = validateApprovalEvidence({
     lifecycle: {
-      approval: { status: "approved" },
+      approval: {
+        status: "approved",
+        approver: "maintainer",
+        evidence: "https://github.com/owner/repo/pull/66#issuecomment-1",
+      },
       review: { status: "completed" },
     },
-    planHash: "sha256:abc123",
     issueNumber: 66,
     comments: [
-      { author: "rando", body: "/approve-plan\nIssue: #66\nPlan-Hash: sha256:abc123\nReview: completed\n" },
+      {
+        author: "rando",
+        body: "Approve plan",
+        url: "https://github.com/owner/repo/pull/66#issuecomment-1",
+      },
     ],
     ownerLogin: "maintainer",
   });
-  assert.equal(errors.length >= 1, true);
+  assert.ok(errors.some((error) => /No exact "Approve plan" comment/.test(error)));
 });
 
-test("validateApprovalEvidence rejects a hash mismatch", () => {
+test("validateApprovalEvidence requires the evidence URL to identify the exact comment", () => {
   const errors = validateApprovalEvidence({
     lifecycle: {
-      approval: { status: "approved" },
+      approval: {
+        status: "approved",
+        approver: "maintainer",
+        evidence: "https://github.com/owner/repo/pull/66#issuecomment-2",
+      },
       review: { status: "completed" },
     },
-    planHash: "sha256:current",
     issueNumber: 66,
     comments: [
-      { author: "maintainer", body: "/approve-plan\nIssue: #66\nPlan-Hash: sha256:stale\nReview: completed\n" },
+      {
+        author: "maintainer",
+        body: "Approve plan",
+        url: "https://github.com/owner/repo/pull/66#issuecomment-1",
+      },
     ],
     ownerLogin: "maintainer",
   });
-  assert.equal(errors.length >= 1, true);
+  assert.ok(errors.some((error) => /No exact "Approve plan" comment/.test(error)));
 });
 
 test("validateApprovalEvidence is a no-op when the plan is not approved", () => {
   const errors = validateApprovalEvidence({
     lifecycle: { approval: { status: "pending" } },
-    planHash: "sha256:abc123",
     issueNumber: 66,
     comments: [],
     ownerLogin: "maintainer",
@@ -411,55 +406,21 @@ test("validateApprovalEvidence is a no-op when the plan is not approved", () => 
   assert.deepEqual(errors, []);
 });
 
-test("validateApprovalEvidence rejects a completed comment for a waived review", () => {
+test("validateApprovalEvidence rejects approval when the recorded approver is not the owner", () => {
   const errors = validateApprovalEvidence({
     lifecycle: {
-      approval: { status: "approved" },
-      review: { status: "waived" },
-    },
-    planHash: "sha256:abc123",
-    issueNumber: 66,
-    comments: [
-      { author: "maintainer", body: "/approve-plan\nIssue: #66\nPlan-Hash: sha256:abc123\nReview: completed\n" },
-    ],
-    ownerLogin: "maintainer",
-  });
-  assert.ok(errors.some((error) => /No valid \/approve-plan comment/.test(error)));
-});
-
-test("validateApprovalEvidence rejects a waived comment for a completed review", () => {
-  const errors = validateApprovalEvidence({
-    lifecycle: {
-      approval: { status: "approved" },
+      approval: {
+        status: "approved",
+        approver: "rando",
+        evidence: "https://github.com/owner/repo/pull/66#issuecomment-1",
+      },
       review: { status: "completed" },
     },
-    planHash: "sha256:abc123",
     issueNumber: 66,
-    comments: [
-      { author: "maintainer", body: "/approve-plan\nIssue: #66\nPlan-Hash: sha256:abc123\nReview: waived\nReason: skipped\n" },
-    ],
+    comments: [],
     ownerLogin: "maintainer",
   });
-  assert.ok(errors.some((error) => /No valid \/approve-plan comment/.test(error)));
-});
-
-test("validateApprovalEvidence accepts a matching waived review with a reason", () => {
-  const errors = validateApprovalEvidence({
-    lifecycle: {
-      approval: { status: "approved" },
-      review: { status: "waived", evidence: "Minor wording change; review waived." },
-    },
-    planHash: "sha256:abc123",
-    issueNumber: 66,
-    comments: [
-      {
-        author: "maintainer",
-        body: "/approve-plan\nIssue: #66\nPlan-Hash: sha256:abc123\nReview: waived\nReason: Minor wording change\n",
-      },
-    ],
-    ownerLogin: "maintainer",
-  });
-  assert.deepEqual(errors, []);
+  assert.ok(errors.some((error) => /approver must match the repository owner/.test(error)));
 });
 
 // --- validateClosingArmed ---

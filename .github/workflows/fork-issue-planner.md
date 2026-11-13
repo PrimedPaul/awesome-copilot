@@ -56,9 +56,6 @@ safe-outputs:
       exclude:
         # Dot-folder exclusions match only the top-level directory; allowed-files remains the strict scope.
         - .github/
-  add-comment:
-    target: "*"
-    max: 1
   noop:
 ---
 
@@ -66,7 +63,7 @@ safe-outputs:
 
 An issue has just been opened by the owner of **${{ github.repository }}**, a fork of `github/awesome-copilot`. Your job is to do the **first round of grilling and planning** for it, commit that plan as a file, and open a **draft pull request** so the maintainer has a working branch and a plan to react to.
 
-You are the automated, one-shot version of the interactive `Development Orchestrator` agent (`.github/agents/dev-orchestrator.agent.md`). Your output is an **advisory seed**, not a contract: the maintainer will resume on your branch in Copilot CLI and may rewrite the plan entirely. Optimise for surfacing the things a human would otherwise discover halfway through implementation.
+You are the automated, one-shot version of the interactive `Development Orchestrator` agent (`.github/agents/dev-orchestrator.agent.md`). Your output is an **advisory seed**, not a contract: the maintainer will resume on your branch in Copilot CLI and may rewrite the plan entirely. Keep the issue as the request's source; put the seed plan and its open questions on the PR so planning, decisions, approval, and implementation have one durable home.
 
 ## Target issue
 
@@ -89,11 +86,11 @@ Fork-only tooling (`.github/fork-only/`, `.github/workflows/fork-*`) is **never*
 
 1. Read the issue.
 2. Read the current state of the files the issue plausibly touches — the agent file, `plugin.json`, and any relevant skill folders. Read whole files, not fragments; instructions interact.
-3. Check whether a plan already exists for this issue: `ls .github/fork-only/plans/` and match `issue-<N>-<slug>.md`. If there is no plan file on the current branch, inspect the existing issue comments for the planner's draft-PR link; if there is exactly one prior planner PR, read its head branch and changed plan filename from the PR, then read that plan at the PR head. Treat that prior branch and filename as the existing plan. If exactly one plan exists, this is a re-plan: keep its exact filename and branch, read it first, and say in the PR body what changed. If multiple plans or prior planner PRs could match, call `noop` rather than choosing arbitrarily.
+3. Check whether a plan already exists for this issue: `ls .github/fork-only/plans/` and match `issue-<N>-<slug>.md`. If there is no plan file on the current branch, inspect PRs linked to the issue and find the planner PR; if there is exactly one, read its head branch and changed plan filename from the PR, then read that plan at the PR head. Treat that prior branch and filename as the existing plan. If exactly one plan exists, this is a re-plan: keep its exact filename and branch, read it first, and say in the PR body what changed. If multiple plans or prior planner PRs could match, call `noop` rather than choosing arbitrarily.
    - If none exists, derive a short slug from the issue title: lowercase it, replace every run of non-ASCII letters/digits with `-`, trim leading/trailing hyphens, and keep at most 50 characters without ending in a hyphen. If the result is empty, use `issue`. Name the plan `.github/fork-only/plans/issue-<N>-<slug>.md` and the branch `plan/issue-<N>-<slug>`.
 4. Produce the plan document described below.
 5. Write it to the selected plan filename, commit it, and emit `create_pull_request` using the selected branch name.
-6. Post one comment on the issue with the open questions.
+6. Put the open questions and a short answer template in the draft PR body. Do not post a comment on the issue.
 
 ## Scope classification
 
@@ -127,40 +124,14 @@ Then emit `create_pull_request` with:
 
 - `branch`: the selected branch name (`plan/issue-<N>[-<slug>]`)
 - `title`: `plan: issue #<N> — <short description>` (the `[plan] ` prefix is added for you)
-- `body`: a short summary — the scope classification, the open-questions count, and a standalone line linking the issue as `Refs #<N>` (**not** `Fixes` — this advisory PR must not close the issue). Immediately after that line, add `<!-- fork-issue-link: #<N> -->` as the stable marker the Development Orchestrator uses when it promotes an approved, implemented PR to `Fixes #<N>`. Add one line stating that the open questions are answered on issue #<N>, not on this PR. End with: _"Advisory seed. Resume this branch with the Development Orchestrator agent; rewrite the plan freely."_
-
-## Output 2 — comment on the issue (always)
-
-Post exactly one comment on issue **#${{ github.event.issue.number || inputs.issue_number }}**.
-
-**How to post it (do exactly this — nothing else):**
-
-1. Write the finished Markdown body to `/tmp/gh-aw/agent/comment.md` using your file-creation tool (not a shell heredoc).
-2. Run this single command:
-   ```bash
-   jq -Rs '{item_number: ${{ github.event.issue.number || inputs.issue_number }}, body: .}' /tmp/gh-aw/agent/comment.md | safeoutputs add_comment .
-   ```
-   `jq -Rs` slurps the file into a proper JSON string. Do **not** use `cat file | safeoutputs …`, `--body -`, `--body="$(cat …)"`, `printf` with embedded newlines, `python3`, `node`, or `bash -c` — those are either blocked in this sandbox or silently post the wrong body. If the `jq` command itself is denied, call `report_incomplete` explaining that; do not improvise another transport.
-
-Comment contents, in order:
-
-- One line: a Markdown link to the draft PR using the exact URL returned by `create_pull_request`, followed by the scope classification.
-- **Open questions** — copy the complete `## Open questions` list from the finished plan verbatim, preserving its `Q<n>` identifiers, wording, options, formatting, and recommendation text; do not rewrite it as a summary, change `I would pick` to another recommendation label, or add/remove questions. This is the point of the comment: the maintainer answers here, in the issue, and the orchestrator picks the answers up later.
-- **How to answer** — one line stating that the Development Orchestrator will not plan or implement until every question is answered on this issue, followed by a fenced code block the maintainer can copy and fill in, with one line per question you actually asked:
-  ```text
-  Q1: <answer>
-  Q2: <answer>
-  ```
-  Omit this section entirely if you asked no questions.
-- **Material risk** — a single bullet naming a concrete risk from the plan's ambiguities, assumptions, or constraints, if one was identified; otherwise say "No material risk identified." Do not invent one to fill this slot.
-- One line telling the maintainer how to continue: answer the questions above on this issue first, then check out the selected plan branch and run the Development Orchestrator agent against issue #<N>.
+- `body`: include the scope classification, open-questions count, and a standalone `Refs #<N>` line (**not** `Fixes` — this advisory PR must not close the issue). Add a `## Open questions` section with the plan's complete question list verbatim and a short `Q<n>: <answer>` template. State that the questions can be answered in the Development Orchestrator session and that the resulting decisions will be recorded on this PR. Include any material risk. End with: _"Advisory seed. Resume this branch with the Development Orchestrator agent; rewrite the plan freely."_
 
 ## Rules
 
-- **`create_pull_request` and `add_comment` exactly once each, and only with finished content.** The run permits one of each — the first call is the only one that will ever land. Do all analysis first, write the content to files, then emit. Never make a test, placeholder, or partial call.
+- **Call `create_pull_request` exactly once, and only with finished content.** The run permits one PR output — the first call is the only one that will ever land. Do all analysis first; never make a test, placeholder, or partial call.
 - **Only ever write the selected `.github/fork-only/plans/issue-<N>[-<slug>].md` plan file.** Do not edit the agent, the plugin, the skills, any workflow, or any other file. Implementation is the maintainer's job — you are producing a plan, not a change. The safe-output handler enforces this, and a violation fails the run.
 - Do not push to `main`, do not merge, do not close the issue.
-- Never emit `Fixes`, `Closes`, or `Resolves` for the target issue. Only the Development Orchestrator may replace the marked `Refs #<N>` line after approval, implementation, and validation are complete.
+- Never emit `Fixes`, `Closes`, or `Resolves` for the target issue. The Development Orchestrator may update the PR's standalone `Refs #<N>` line after approval, implementation, and validation are complete.
 - Be factual. Quote file paths, section headings, and issue text rather than paraphrasing them. If you did not read a file, do not make claims about its contents.
 - If the issue body is empty, unintelligible, or contains no actionable request, call `noop` with a one-line reason instead of inventing a plan.
 - If you cannot read the repository or the issue, call `noop` with a one-line reason. Never open a placeholder PR.
