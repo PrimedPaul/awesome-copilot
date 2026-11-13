@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Enforces the fork-only plan approval lifecycle described in
 // .github/fork-only/plans/README.md: a plan must carry machine-readable
-// evidence that requirements were answered, the plan was reviewed, and a
-// maintainer approved it before an implementation PR is allowed to arm
+// evidence that requirements were answered, the plan was reviewed, and the
+// maintainer approved it on the planning PR before an implementation PR may arm
 // `Fixes #N`. See .github/fork-only/README.md for the full contract.
 //
 // This module is split in two layers on purpose:
@@ -305,7 +305,7 @@ function validatePlanDocument({ frontmatter, body, issueNumber }) {
       errors.push("lifecycle.approval.approver is required and must be the maintainer's GitHub login.");
     }
     if (!lifecycle.approval.evidence) {
-      errors.push("lifecycle.approval.evidence (link to the /approve-plan comment) is required.");
+      errors.push('lifecycle.approval.evidence (link to the exact "Approve plan" PR comment) is required.');
     }
   }
 
@@ -332,99 +332,46 @@ function validatePlanDocument({ frontmatter, body, issueNumber }) {
 }
 
 /**
- * Parse a `/approve-plan` maintainer comment.
+ * Parse the exact short approval phrase used on the planning PR.
  * @param {string} commentBody - Raw comment text.
- * @returns {{issue: number, hash: string, review: string, reason: (string|null)}|null}
- *   Null when the comment is not an /approve-plan command at all (so callers
- *   can ignore unrelated comments without treating them as malformed).
- * @throws {Error} When the comment starts with /approve-plan but is missing required fields.
+ * @returns {{approved: true}|null} Null for any other comment.
  */
 function parseApprovalComment(commentBody) {
-  const lines = (commentBody || "").split(/\r?\n/).map((l) => l.trim());
-  const firstNonEmpty = lines.find((l) => l.length > 0);
-  if (firstNonEmpty !== "/approve-plan") {
-    return null;
-  }
-
-  const fields = {};
-  for (const line of lines) {
-    const match = line.match(/^([A-Za-z-]+):\s*(.+)$/);
-    if (match) {
-      fields[match[1].toLowerCase()] = match[2].trim();
-    }
-  }
-
-  const issueMatch = fields.issue?.match(/#?(\d+)/);
-  if (!issueMatch) {
-    throw new Error('/approve-plan comment is missing a valid "Issue: #N" line.');
-  }
-  if (!fields["plan-hash"]) {
-    throw new Error('/approve-plan comment is missing a "Plan-Hash: sha256:<hash>" line.');
-  }
-  const hash = fields["plan-hash"].startsWith("sha256:") ? fields["plan-hash"] : `sha256:${fields["plan-hash"]}`;
-
-  const review = (fields.review || "").toLowerCase();
-  if (!VALID_REVIEW_STATUSES.has(review) || review === "pending") {
-    throw new Error('/approve-plan comment must include "Review: completed" or "Review: waived".');
-  }
-  if (review === "waived" && !fields.reason) {
-    throw new Error('/approve-plan comment with "Review: waived" must include a "Reason:" line.');
-  }
-
-  return {
-    issue: Number(issueMatch[1]),
-    hash,
-    review,
-    reason: fields.reason || null,
-  };
+  if ((commentBody || "").trim().toLowerCase() !== "approve plan") return null;
+  return { approved: true };
 }
 
 /**
- * Verify that a valid, matching /approve-plan comment from the repository
- * owner exists among the fetched comments.
+ * Verify that lifecycle evidence links to an exact approval comment from the
+ * repository owner on the planning PR.
  * @param {object} params
  * @param {object} params.lifecycle - Plan frontmatter lifecycle block.
- * @param {string} params.planHash - Freshly computed hash of the current plan body.
  * @param {number} params.issueNumber - Tracking issue number.
- * @param {{author: string, body: string}[]} params.comments - Comments fetched from the issue and/or PR.
+ * @param {{author: string, body: string, url: string}[]} params.comments - Comments fetched from the PR.
  * @param {string} params.ownerLogin - Repository owner's GitHub login (the only accepted approver).
  * @returns {string[]} Validation errors (empty when a valid approval is found).
  */
-function validateApprovalEvidence({ lifecycle, planHash, issueNumber, comments, ownerLogin }) {
+function validateApprovalEvidence({ lifecycle, issueNumber, comments, ownerLogin }) {
   if (lifecycle?.approval?.status !== "approved") {
     return [];
   }
 
-  const matching = [];
-  const malformed = [];
-  for (const comment of comments) {
-    let parsed;
-    try {
-      parsed = parseApprovalComment(comment.body);
-    } catch (error) {
-      malformed.push(`${comment.author}: ${error.message}`);
-      continue;
-    }
-    if (!parsed) continue;
-    if (comment.author !== ownerLogin) continue;
-    if (
-      parsed.issue === issueNumber &&
-      parsed.hash === planHash &&
-      parsed.review === lifecycle.review?.status
-    ) {
-      matching.push(parsed);
-    }
+  const approvalUrl = lifecycle.approval.evidence;
+  const matching = comments.some((comment) =>
+    comment.author === ownerLogin &&
+    comment.url === approvalUrl &&
+    parseApprovalComment(comment.body) !== null
+  );
+  if (lifecycle.approval.approver !== ownerLogin) {
+    return [`lifecycle.approval.approver must match the repository owner "${ownerLogin}".`];
   }
-
-  if (matching.length > 0) {
+  if (matching) {
     return [];
   }
 
-  const errors = [
-    `No valid /approve-plan comment from "${ownerLogin}" matching issue #${issueNumber} and plan hash ${planHash} was found.`,
+  return [
+    `No exact "Approve plan" comment from "${ownerLogin}" matching lifecycle.approval.evidence was found on the planning PR for issue #${issueNumber}.`,
   ];
-  errors.push(...malformed.map((m) => `Malformed /approve-plan comment (ignored): ${m}`));
-  return errors;
 }
 
 /**
@@ -569,24 +516,22 @@ async function main() {
 
   errors.push(...validatePlanDocument({ frontmatter, body, issueNumber }));
 
-  const planHash = computePlanHash(body);
   const planStatus = frontmatter?.status;
   const lifecycle = frontmatter?.lifecycle;
 
   if (lifecycle?.approval?.status === "approved" && owner && repo) {
     try {
-      const comments = fetchComments({ owner, repo, issueNumber, prNumber });
+      const comments = fetchComments({ owner, repo, prNumber });
       errors.push(
         ...validateApprovalEvidence({
           lifecycle,
-          planHash,
           issueNumber,
           comments,
           ownerLogin: owner,
         })
       );
     } catch (error) {
-      errors.push(`Failed to verify /approve-plan evidence via GitHub API: ${error.message}`);
+      errors.push(`Failed to verify "Approve plan" evidence via GitHub API: ${error.message}`);
     }
   }
 
@@ -626,24 +571,20 @@ function reportAndExit(errors) {
   console.log("✅ Fork plan lifecycle check passed");
 }
 
-function fetchComments({ owner, repo, issueNumber, prNumber }) {
-  const results = [];
-  const numbers = new Set([issueNumber, prNumber].filter((n) => typeof n === "number"));
-  for (const number of numbers) {
-    // --paginate --slurp merges all pages into a single JSON array, even for
-    // multi-page comment threads.
-    const output = execFileSync(
-      "gh",
-      ["api", `repos/${owner}/${repo}/issues/${number}/comments`, "--paginate", "--slurp"],
-      { encoding: "utf8" }
-    );
-    const pages = JSON.parse(output);
-    const flat = pages.flat();
-    for (const comment of flat) {
-      results.push({ author: comment.user?.login, body: comment.body });
-    }
-  }
-  return results;
+function fetchComments({ owner, repo, prNumber }) {
+  // --paginate --slurp merges all pages into a single JSON array, even for
+  // multi-page comment threads.
+  const output = execFileSync(
+    "gh",
+    ["api", `repos/${owner}/${repo}/issues/${prNumber}/comments`, "--paginate", "--slurp"],
+    { encoding: "utf8" }
+  );
+  const pages = JSON.parse(output);
+  return pages.flat().map((comment) => ({
+    author: comment.user?.login,
+    body: comment.body,
+    url: comment.html_url,
+  }));
 }
 
 function fetchClosingIssuesReferences({ owner, repo, prNumber }) {
