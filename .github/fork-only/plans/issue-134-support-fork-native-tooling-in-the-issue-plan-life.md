@@ -2,7 +2,20 @@
 issue: 134
 title: 'Support fork-native tooling in the issue plan lifecycle'
 scope: fork-tooling
-status: draft
+status: approved
+lifecycle:
+  schema: 1
+  planHash: 'sha256:5d601c414b157c3b37aed96977db634ee4fc4961ae1beb20fe9eec2a6c58fc89'
+  requirements:
+    status: answered
+  review:
+    status: completed
+    verdict: no-material-concerns
+    evidence: 'https://github.com/PrimedPaul/awesome-copilot/pull/135'
+  approval:
+    status: approved
+    approver: PrimedPaul
+    evidence: 'https://github.com/PrimedPaul/awesome-copilot/pull/135#issuecomment-7169343800'
 ---
 
 # Plan: Support fork-native tooling in the issue plan lifecycle
