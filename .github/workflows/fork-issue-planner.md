@@ -38,10 +38,21 @@ tools:
     - "cat *"
     - "ls *"
 safe-outputs:
+  add-labels:
+    allowed: [fork-workflow, o2p-plugin-enhancements]
+    target: "${{ github.event.issue.number || inputs.issue_number }}"
+    issues: true
+    pull-requests: false
+    max: 1
+  remove-labels:
+    allowed: [fork-maintenance, fork-workflow, o2p-plugin-enhancements]
+    target: "${{ github.event.issue.number || inputs.issue_number }}"
+    max: 2
   create-pull-request:
     draft: true
     title-prefix: "[plan] "
     labels: [fork-automation]
+    allowed-labels: [fork-workflow, o2p-plugin-enhancements]
     base-branch: main
     allowed-branches:
       - 'plan/issue-*'
@@ -56,6 +67,46 @@ safe-outputs:
       exclude:
         # Dot-folder exclusions match only the top-level directory; allowed-files remains the strict scope.
         - .github/
+  jobs:
+    revalidate-lifecycle:
+      description: Revalidate linked pull requests after planner labels and PR output succeed
+      runs-on: ubuntu-latest
+      needs: safe_outputs
+      if: ${{ needs.safe_outputs.result == 'success' }}
+      permissions:
+        actions: write
+      inputs:
+        issue_number:
+          description: Issue number to revalidate
+          required: true
+          type: string
+      steps:
+        - name: Dispatch lifecycle check
+          uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+          env:
+            GH_AW_AGENT_OUTPUT: ${{ runner.temp }}/gh-aw/safe-jobs/agent_output.json
+          with:
+            github-token: ${{ secrets.GITHUB_TOKEN }}
+            script: |
+              const fs = require("node:fs");
+              const output = JSON.parse(fs.readFileSync(process.env.GH_AW_AGENT_OUTPUT, "utf8"));
+              const requests = output.items.filter((item) => item.type === "revalidate_lifecycle");
+              if (requests.length === 0) {
+                throw new Error("No lifecycle revalidation request was found in the agent output.");
+              }
+              for (const request of requests) {
+                const issueNumber = Number(request.issue_number);
+                if (!Number.isSafeInteger(issueNumber) || issueNumber < 1) {
+                  throw new Error("issue_number must be a positive integer.");
+                }
+                await github.rest.actions.createWorkflowDispatch({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  workflow_id: "fork-plan-lifecycle-check.yml",
+                  ref: "main",
+                  inputs: { issue_number: String(issueNumber) },
+                });
+              }
   noop:
 ---
 
@@ -89,8 +140,11 @@ Fork-only tooling (`.github/fork-only/`, `.github/workflows/fork-*`) is **never*
 3. Check whether a plan already exists for this issue: `ls .github/fork-only/plans/` and match `issue-<N>-<slug>.md`. If there is no plan file on the current branch, inspect PRs linked to the issue and find the planner PR; if there is exactly one, read its head branch and changed plan filename from the PR, then read that plan at the PR head. Treat that prior branch and filename as the existing plan. If exactly one plan exists, this is a re-plan: keep its exact filename and branch, read it first, and say in the PR body what changed. If multiple plans or prior planner PRs could match, call `noop` rather than choosing arbitrarily.
    - If none exists, derive a short slug from the issue title: lowercase it, replace every run of non-ASCII letters/digits with `-`, trim leading/trailing hyphens, and keep at most 50 characters without ending in a hyphen. If the result is empty, use `issue`. Name the plan `.github/fork-only/plans/issue-<N>-<slug>.md` and the branch `plan/issue-<N>-<slug>`.
 4. Produce the plan document described below.
-5. Write it to the selected plan filename, commit it, and emit `create_pull_request` using the selected branch name.
+5. Write it to the selected plan filename, commit it, reconcile its issue category labels, and emit `create_pull_request` using the selected branch name. For in-scope issues, call `add_labels` after any `remove_labels` output, make it depend on that removal output when present, then make `create_pull_request` depend on the `add_labels` output. This ensures label reconciliation succeeds before the PR is created or updated.
 6. Put the open questions and a short answer template in the draft PR body. Do not post a comment on the issue.
+7. For an in-scope plan, identify its one category (`fork-workflow` for fork tooling/workflow changes; `o2p-plugin-enhancements` for custom-agent/plugin/skill changes). Use the bounded label safe outputs to remove any wrong/legacy category from the triggering issue and apply the correct category, preserving unrelated labels. Include that same category in the planning PR's `create_pull_request` output while retaining the static `fork-automation` marker. Do not apply `fork-lifecycle-maintenance` or `fork-sync`.
+8. If the issue is mixed-scope, call `noop` and request that the maintainer split it before planning. For out-of-scope work, keep the minimal plan but do not assign a fork category to the issue or PR.
+9. After all other outputs, call `revalidate_lifecycle` with the exact issue number for in-scope plans. Its custom safe-output job runs only after the consolidated safe-outputs job succeeds, so validation follows successful label reconciliation and PR creation/update. Do not call it for out-of-scope plans.
 
 ## Scope classification
 
