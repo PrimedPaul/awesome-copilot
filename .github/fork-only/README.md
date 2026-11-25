@@ -61,8 +61,8 @@ Plan files under `.github/fork-only/plans/` were originally **advisory artefacts
 
 | Label | Applied to | Purpose and authority |
 | --- | --- | --- |
-| `fork-workflow` | In-scope issue and linked PRs | Category for fork workflow, lifecycle, and tooling changes. The Fork Issue Planner assigns it and the lifecycle check requires the issue and PR categories to match. |
-| `o2p-plugin-enhancements` | In-scope issue and linked PRs | Category for the Oracle-to-PostgreSQL custom agent, plugin, and skills. The planner assigns it and the lifecycle check requires the issue and PR categories to match. |
+| `fork-workflow` | In-scope issue, planning PR, and linked lifecycle PRs | Category for fork workflow, lifecycle, and tooling changes. The planner assigns it to the issue and planning PR; the implementation/maintenance PR author or maintainer applies the matching category, which the lifecycle check enforces. |
+| `o2p-plugin-enhancements` | In-scope issue, planning PR, and linked lifecycle PRs | Category for the Oracle-to-PostgreSQL custom agent, plugin, and skills. The planner assigns it to the issue and planning PR; the implementation PR author or maintainer applies the matching category, which the lifecycle check enforces. |
 | `fork-lifecycle-maintenance` | PR only | Maintainer-applied gate for PRs that change only the explicit lifecycle-maintenance allowlist. It is not a category or general bypass; path checks and regression tests still run. |
 | `fork-sync` | Upstream sync PR only | Applied by the Fork Sync Watchdog. It skips the lifecycle check because upstream sync PRs do not contain the fork's lifecycle scripts. |
 | `fork-automation` | Automation-generated issues and planner PRs | Marker used to prevent the planner from recursively processing automation issues; it is not an issue category or lifecycle bypass. |
