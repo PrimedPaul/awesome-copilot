@@ -351,7 +351,7 @@ test("validateCategoryLabels requires exactly one matching issue and PR category
     validateCategoryLabels({
       mode: "tooling",
       scope: "fork-tooling",
-      issueLabels: ["fork-workflow", "fork-maintenance"],
+      issueLabels: ["fork-workflow"],
       pullRequestLabels: ["fork-workflow", "fork-lifecycle-maintenance"],
     }),
     []
@@ -412,7 +412,7 @@ test("issue-link selection and planner label revalidation are narrowly scoped", 
   assert.deepEqual(linked.map((pr) => pr.number), [1]);
   assert.equal(isRelevantCategoryLabel("fork-workflow"), true);
   assert.equal(isRelevantCategoryLabel("o2p-plugin-enhancements"), true);
-  assert.equal(isRelevantCategoryLabel("fork-maintenance"), true);
+  assert.equal(isRelevantCategoryLabel("fork-workflow"), true);
   assert.equal(isRelevantCategoryLabel("fork-lifecycle-maintenance"), false);
   assert.equal(isRelevantCategoryLabel("documentation"), false);
   assert.equal(issueNumberFromEvent("issues", { issue: { number: 66 } }), 66);

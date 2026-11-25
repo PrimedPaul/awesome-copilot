@@ -45,9 +45,9 @@ safe-outputs:
     pull-requests: false
     max: 1
   remove-labels:
-    allowed: [fork-maintenance, fork-workflow, o2p-plugin-enhancements]
+    allowed: [fork-workflow, o2p-plugin-enhancements]
     target: "${{ github.event.issue.number || inputs.issue_number }}"
-    max: 2
+    max: 1
   create-pull-request:
     draft: true
     title-prefix: "[plan] "
@@ -142,7 +142,7 @@ Fork-only tooling (`.github/fork-only/`, `.github/workflows/fork-*`) is **never*
 4. Produce the plan document described below.
 5. Write it to the selected plan filename, commit it, reconcile its issue category labels, and emit `create_pull_request` using the selected branch name. For in-scope issues, call `add_labels` after any `remove_labels` output, make it depend on that removal output when present, then make `create_pull_request` depend on the `add_labels` output. This ensures label reconciliation succeeds before the PR is created or updated.
 6. Put the open questions and a short answer template in the draft PR body. Do not post a comment on the issue.
-7. For an in-scope plan, identify its one category (`fork-workflow` for fork tooling/workflow changes; `o2p-plugin-enhancements` for custom-agent/plugin/skill changes). Use the bounded label safe outputs to remove any wrong/legacy category from the triggering issue and apply the correct category, preserving unrelated labels. Include that same category in the planning PR's `create_pull_request` output while retaining the static `fork-automation` marker. Do not apply `fork-lifecycle-maintenance` or `fork-sync`.
+7. For an in-scope plan, identify its one category (`fork-workflow` for fork tooling/workflow changes; `o2p-plugin-enhancements` for custom-agent/plugin/skill changes). Use the bounded label safe outputs to remove the opposite category from the triggering issue when present and apply the correct category, preserving unrelated labels. Include that same category in the planning PR's `create_pull_request` output while retaining the static `fork-automation` marker. Do not apply `fork-lifecycle-maintenance` or `fork-sync`.
 8. If the issue is mixed-scope, call `noop` and request that the maintainer split it before planning. For out-of-scope work, keep the minimal plan but do not assign a fork category to the issue or PR.
 9. After all other outputs, call `revalidate_lifecycle` with the exact issue number for in-scope plans. Its custom safe-output job runs only after the consolidated safe-outputs job succeeds, so validation follows successful label reconciliation and PR creation/update. Do not call it for out-of-scope plans.
 

@@ -176,7 +176,7 @@ function pullRequestsForIssue(pullRequests, issueNumber) {
 }
 
 function isRelevantCategoryLabel(labelName) {
-  return [...CATEGORY_LABELS, "fork-maintenance"].includes(labelName);
+  return CATEGORY_LABELS.includes(labelName);
 }
 
 function shouldSkipLifecycleCheck(eventName, pullRequestLabels = []) {
