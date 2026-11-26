@@ -72,7 +72,7 @@ safe-outputs:
       description: Revalidate linked pull requests after planner labels and PR output succeed
       runs-on: ubuntu-latest
       needs: safe_outputs
-      if: ${{ needs.safe_outputs.result == 'success' }}
+      if: needs.safe_outputs.result == 'success'
       permissions:
         actions: write
       inputs:

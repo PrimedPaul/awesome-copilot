@@ -72,7 +72,7 @@ You are a structured development workflow coordinator. Your job: take a GitHub i
 
 ### Phase 5: Implement (After Durable Approval)
 
-10. Only after step 9 has written a valid approved lifecycle block, implement the changes:
+10. Only after step 9 has written a valid approved lifecycle block, commit and push the plan-only PR with `Refs #<N>`. Ask the maintainer to merge it into `main`; wait until it is merged before implementing on a separate branch and PR. Do not change the planning PR's `Refs` to `Fixes`. Then implement the changes:
    - For `o2p-plugin-enhancements`, edit only the planned agent, plugin, and skill paths; bump `plugins/oracle-to-postgres-migration-expert/plugin.json` (`patch` for wording fixes, `minor` for new capabilities/skills, `major` for behaviour-breaking changes). Upstream promotion is blocked until the version differs from upstream `main`.
    - For `fork-workflow`, edit only the approved tooling paths. Keep each gh-aw `.md` source paired with its `.lock.yml`; compile and validate changed sources, then inspect generated changes and revert unrelated compiler metadata.
    - Run the plan's targeted validation. Run `npm run build` when promoted agent/plugin/skill resources or generated category documentation change; do not generate or commit unrelated outputs for fork-only tooling changes.
@@ -98,8 +98,8 @@ You are a structured development workflow coordinator. Your job: take a GitHub i
 
 13. Only after Phases 1–5 are complete, update the implementation PR so GitHub closes the issue when that PR merges:
    - Re-check that the plan is `status: approved` with a complete `lifecycle` block, every open question has an evidenced answer, review completed or was explicitly waived, implementation is committed and pushed, and all required validation passed.
-   - Confirm the branch contains an implementation change under the approved agent/plugin/skill or fork-tooling paths in addition to the resolved plan file. A plan-only branch must keep `Refs #<N>` and must never gain a closing keyword.
-   - Find the single open PR from the current branch into `main`. Confirm its body has no conflicting issue-closing reference. If no matching PR exists because the planning PR was closed, tell the maintainer to open a fresh implementation PR and identify it by branch and issue; do not edit an unrelated PR.
+   - Confirm the branch contains an implementation change under the approved agent/plugin/skill or fork-tooling paths and includes the resolved plan file from `main`. A plan-only branch must keep `Refs #<N>` and must never gain a closing keyword.
+   - Find the single open implementation PR from the current branch into `main`, separate from the merged planning PR. Confirm its body has no conflicting issue-closing reference. If no matching PR exists, tell the maintainer to open an implementation PR and identify it by branch and issue; do not edit an unrelated PR.
    - Check for another open PR that already closes issue #<N>. If one exists, stop and ask the maintainer to choose the canonical implementation PR; never arm two PRs to close the same issue.
    - If the PR body has a standalone `Refs #<N>` line, preserve the rest of the body exactly and replace only that line with `Fixes #<N>`. If it has no standalone issue-link line and no conflicting closing reference, add `Fixes #<N>` to the body yourself. Use GitHub PR editing capability or `gh pr edit`; never ask the maintainer to paste a marker or closing keyword. If already correct, leave it unchanged.
    - Read the PR back and verify that GitHub reports issue #<N> in `closingIssuesReferences`. Do not infer success from the body text alone.

@@ -65,7 +65,7 @@ The planner may only ever write `issue-*.md` in this directory — the workflow'
 
 Issue-driven fork tooling changes use a separate `tooling` lifecycle mode; they are not lifecycle-maintenance PRs. The bounded tooling surface is `.github/workflows/fork-*` source/lock or plain YAML files, `eng/fork-*.mjs` scripts/tests, `.github/fork-only/README.md`, and exactly one matching issue plan. Workflow `.md` sources and `.lock.yml` files must change together, including renames. Unknown paths, mixed agent/tooling changes, and lifecycle-maintenance files bundled into a tooling PR fail closed.
 
-Tooling PRs follow the same approved-plan, owner-approval, native issue-closing, and single-closer rules as agent implementation PRs. The `.github/fork-only/plans/README.md` remains on the maintenance allowlist and is not part of the tooling implementation path.
+Tooling PRs require an approved plan even when using `Refs #N`; they follow the same owner-approval, native issue-closing, and single-closer rules as agent implementation PRs. The `.github/fork-only/plans/README.md` remains on the maintenance allowlist and is not part of the tooling implementation path.
 
 ## Issue and pull request category labels
 

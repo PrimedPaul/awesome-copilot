@@ -21,6 +21,8 @@ import {
   categoryForPlanScope,
   buildCheckRunRequest,
   runGhJson,
+  processPullRequests,
+  validateToolingPlanStatus,
   shouldSkipLifecycleCheck,
   issueNumberFromEvent,
 } from "./validate-fork-plan-lifecycle.mjs";
@@ -482,6 +484,40 @@ test("GitHub API reads remain GET when query fields are present", () => {
     });
     assert.deepEqual(output, { ok: true });
   }
+});
+
+test("tooling requires an approved plan even with Refs, unlike maintenance", () => {
+  assert.match(validateToolingPlanStatus("tooling", "draft")[0], /approved plan/);
+  assert.deepEqual(validateToolingPlanStatus("tooling", "approved"), []);
+  assert.deepEqual(validateToolingPlanStatus("maintenance", "draft"), []);
+});
+
+test("revalidation publishes read failures and continues after publishing failures", async () => {
+  const checks = [];
+  const comments = [];
+  const result = await processPullRequests({
+    owner: "owner",
+    repo: "repo",
+    pullRequests: [{ number: 1 }, { number: 2 }, { number: 3 }],
+    validate: async ({ pullRequest }) => {
+      if (pullRequest.number === 1) throw new Error("issue labels unavailable");
+      return { errors: [] };
+    },
+    publishCheck: async ({ pullRequest, errors }) => {
+      checks.push({ number: pullRequest.number, errors });
+      if (pullRequest.number === 2) throw new Error("check lookup failed");
+      return [];
+    },
+    publishComment: async ({ pullRequest, errors }) => {
+      comments.push({ number: pullRequest.number, errors });
+      return [];
+    },
+  });
+  assert.match(checks[0].errors[0], /issue labels unavailable/);
+  assert.deepEqual(checks.map(({ number }) => number), [1, 2, 3]);
+  assert.deepEqual(comments.map(({ number }) => number), [1, 2, 3]);
+  assert.ok(result.some((error) => /PR #1:.*issue labels unavailable/.test(error)));
+  assert.ok(result.some((error) => /PR #2: check lookup failed/.test(error)));
 });
 
 // --- planHasOpenQuestions ---

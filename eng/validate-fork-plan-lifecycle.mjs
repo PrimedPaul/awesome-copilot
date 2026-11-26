@@ -584,6 +584,12 @@ function validateClosingArmed({
   return errors;
 }
 
+function validateToolingPlanStatus(mode, planStatus) {
+  return mode === "tooling" && planStatus !== "approved"
+    ? ['Tooling PRs require an approved plan, including when using "Refs #N".']
+    : [];
+}
+
 async function main() {
   if (process.argv[2] === "--hash") {
     const planPath = process.argv[3];
@@ -660,32 +666,38 @@ async function main() {
     return;
   }
 
+  reportAndExit(await processPullRequests({
+    owner, repo, pullRequests,
+    testsFailed: process.env.FORK_LIFECYCLE_TEST_OUTCOME === "failure",
+  }));
+}
+
+async function processPullRequests({
+  owner, repo, pullRequests, testsFailed = false,
+  validate = validatePullRequestLifecycle,
+  publishCheck = publishCheckRun,
+  publishComment = publishLifecycleComment,
+}) {
   const resultErrors = [];
-  for (const pr of pullRequests) {
-    const result = await validatePullRequestLifecycle({ owner, repo, pullRequest: pr });
-    const checkErrors = [...result.errors];
-    if (process.env.FORK_LIFECYCLE_TEST_OUTCOME === "failure") {
-      checkErrors.push("Fork plan lifecycle regression tests failed.");
+  for (const pullRequest of pullRequests) {
+    const params = { owner, repo, pullRequest };
+    let checkErrors;
+    try {
+      checkErrors = [...(await validate(params)).errors];
+    } catch (error) {
+      checkErrors = [`Failed to validate lifecycle: ${error.message}`];
     }
-    const checkRunErrors = await publishCheckRun({
-      owner,
-      repo,
-      pullRequest: pr,
-      errors: checkErrors,
-    });
-    const commentErrors = await publishLifecycleComment({
-      owner,
-      repo,
-      pullRequest: pr,
-      errors: checkErrors,
-    });
-    resultErrors.push(
-      ...checkErrors.map((error) => `PR #${pr.number}: ${error}`),
-      ...checkRunErrors,
-      ...commentErrors
-    );
+    if (testsFailed) checkErrors.push("Fork plan lifecycle regression tests failed.");
+    resultErrors.push(...checkErrors.map((error) => `PR #${pullRequest.number}: ${error}`));
+    for (const [label, publish] of [["check run", publishCheck], ["summary comment", publishComment]]) {
+      try {
+        resultErrors.push(...await publish({ ...params, errors: checkErrors }));
+      } catch (error) {
+        resultErrors.push(`Failed to publish lifecycle ${label} for PR #${pullRequest.number}: ${error.message}`);
+      }
+    }
   }
-  reportAndExit(resultErrors);
+  return resultErrors;
 }
 
 function runGhJson(args, execute = execFileSync) {
@@ -738,11 +750,11 @@ function approvalPullRequestNumber(approvalUrl) {
 function fetchOpenPullRequestsForIssue({ owner, repo, issueNumber }) {
   const output = execFileSync(
     "gh",
-    ["pr", "list", "--repo", `${owner}/${repo}`, "--state", "open", "--limit", "1000", "--json", "number,body"],
+    ["pr", "list", "--repo", `${owner}/${repo}`, "--state", "open", "--limit", "1000", "--json",
+      "number,url,body,labels,baseRefName,baseRefOid,headRefName,headRefOid,closingIssuesReferences,mergedAt"],
     { encoding: "utf8" }
   );
-  const candidates = pullRequestsForIssue(JSON.parse(output), issueNumber);
-  return candidates.map((pr) => fetchPullRequest({ owner, repo, number: pr.number }));
+  return pullRequestsForIssue(JSON.parse(output), issueNumber);
 }
 
 function fetchPullRequestFiles({ owner, repo, number }) {
@@ -846,6 +858,7 @@ async function validatePullRequestLifecycle({ owner, repo, pullRequest }) {
   }
 
   const planStatus = frontmatter?.status;
+  errors.push(...validateToolingPlanStatus(mode, planStatus));
   const lifecycle = frontmatter?.lifecycle;
   if (lifecycle?.approval?.status === "approved" && owner && repo && planFile) {
     try {
@@ -1083,4 +1096,6 @@ export {
   validateClosingArmed,
   buildCheckRunRequest,
   runGhJson,
+  processPullRequests,
+  validateToolingPlanStatus,
 };

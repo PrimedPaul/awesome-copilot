@@ -102,7 +102,7 @@ Used for exactly two things, both in deterministic (non-agent) jobs:
 
 The PAT is **never** available to a gh-aw agent job. gh-aw's compiler reports it as a "new restricted secret" on first compile of the watchdog; that is expected and has been reviewed.
 
-`fork-issue-planner` does **not** use the PAT. Its draft PR is opened with `GITHUB_TOKEN`, which means the plan PR does not trigger `pull_request` workflows — harmless, because a plan-only PR has nothing for CI to check. CI starts once you push implementation commits to that branch yourself.
+`fork-issue-planner` does **not** use the PAT. Its draft PR is opened with `GITHUB_TOKEN`, which means creating it does not trigger `pull_request` workflows. A subsequent push by the orchestrator triggers CI for the plan-only PR; implementation happens separately after the plan merges.
 
 Set an expiry (90 days) and note the renewal date in your calendar. To rotate: **Settings → Secrets and variables → Actions → `FORK_AUTOMATION_PAT`**.
 
@@ -119,7 +119,8 @@ The gh-aw workflows use the Copilot engine and request `copilot-requests: write`
 | Surface | What belongs there |
 | --- | --- |
 | The **issue** | The original request and its context. |
-| The **planning PR** (`plan/issue-<N>-<short-slug>`) | The evolving plan, open questions, decision record, review evidence, approval comment, and implementation diff. It becomes the implementation PR. |
+| The **planning PR** (`plan/issue-<N>-<short-slug>`) | The evolving plan, open questions, decision record, review evidence, and approval comment. It remains plan-only and is merged before implementation. |
+| The **implementation PR** | Changes made on a separate branch after the planning PR merges. |
 | The **Development Orchestrator** session | Reads the issue and PR, asks unresolved questions interactively, records your answers on the PR, obtains an independent plan review, and waits for your explicit PR approval before implementing. |
 
 Answering questions is not approval, and a clean Plan Reviewer verdict is not approval. The plan stays `status: draft` until all three gates pass — questions answered, review completed or explicitly waived, and your approval given.
@@ -128,8 +129,8 @@ Answering questions is not approval, and a clean Plan Reviewer verdict is not ap
 2. **Fork Issue Planner** fires automatically (owner-opened issues only, `fork-automation`-labelled ones excluded). Within a few minutes you get a draft PR `[plan] plan: issue #N — …` on branch `plan/issue-<N>-<short-slug>` containing `.github/fork-only/plans/issue-<N>-<short-slug>.md` with `---`-delimited YAML frontmatter (always `status: draft`), plus the plan's open questions and an answer template in the PR body.
 3. In Copilot CLI, check out the planner PR's branch, select **Development Orchestrator** (`/agent` → `.github/agents/dev-orchestrator.agent.md`), and give it the issue number. It reads the issue, PR, and plan; asks you unresolved questions in the session; then records your answers in the plan's `## Decision record` and publishes the revised plan on the PR.
 4. The orchestrator dispatches **Plan Reviewer** for an independent rubber-duck review and incorporates valid findings. It presents the reviewed plan on the PR and asks you to leave the exact comment `Approve plan` on that PR. The comment is the durable, attributable approval; the orchestrator records the hash and lifecycle metadata for you. If review dispatch or its verdict fails, it tells you the plan was not reviewed and asks whether to retry or proceed without review. A clean reviewer verdict or session-only approval is not approval.
-5. After approval, the orchestrator implements, bumps `plugin.json` version, runs `npm run build`, and self-reviews.
-6. Once implementation and validation pass, the orchestrator changes the PR's standalone `Refs #N` line to `Fixes #N` (or adds the native reference if missing), then verifies GitHub lists issue #N in `closingIssuesReferences`. It refuses to arm a plan-only PR or a second PR for the same issue. No hidden marker is required.
+5. After approval, merge the plan-only PR with `Refs #N`. The orchestrator then implements on a separate branch, bumps `plugin.json` and runs `npm run build` for agent resources when applicable, and self-reviews.
+6. Once implementation and validation pass, the orchestrator changes the implementation PR's standalone `Refs #N` line to `Fixes #N` (or adds the native reference if missing), then verifies GitHub lists issue #N in `closingIssuesReferences`. It refuses to arm a plan-only PR or a second PR for the same issue. No hidden marker is required.
 7. Mark the implementation PR *Ready for review*. `skill-check` (vally) and `fork-agent-reviewer` run. The reviewer's `version_check` job fails if the version was not bumped.
 8. Merge when satisfied — you are the sole reviewer. GitHub closes issue #N as completed only after the PR merges into `main`; closing or abandoning the PR leaves the issue open.
 
