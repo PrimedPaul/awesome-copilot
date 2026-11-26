@@ -41,7 +41,7 @@ npm run fork:plan-hash -- .github/fork-only/plans/issue-<N>-<short-slug>.md
 
 The orchestrator records the printed `sha256:<hex>` value in `lifecycle.planHash`; it is not part of the approval comment. It pins approval to the plan body shown for approval: if the plan changes while approval is pending or afterward, the hash no longer matches and the check fails until you re-review and re-approve.
 
-Your approval itself must be posted as a comment on the **planning PR** (not just an in-session confirmation), because that is the durable, attributable record the CI check can verify. The entire trimmed comment body is:
+Your approval itself must be posted as a comment on the **planning PR** (not just an in-session confirmation), because that is the durable, attributable record the CI check can verify. The lifecycle check confirms the evidence URL identifies that issue's merged planning PR, which targets `main` and contains the matching plan file. The entire trimmed comment body is:
 
 ```text
 Approve plan
@@ -49,7 +49,7 @@ Approve plan
 
 The orchestrator records the plan hash and your GitHub login in the lifecycle metadata; you do not copy hashes or fill in a command template. The check only accepts the exact phrase from the repository owner on the matching PR and still verifies the plan hash against its current body. If the plan body changes after approval, it must be reviewed and approved again. Reviewer waivers remain recorded with a reason in the lifecycle metadata.
 
-The check also governs `Refs #<N>` → `Fixes #<N>`: an implementation PR may only carry `Fixes #<N>` once the linked plan is `approved` with valid lifecycle evidence, and only if GitHub's own `closingIssuesReferences` for that PR agrees and no other open PR already closes the same issue.
+The check also governs `Refs #<N>` → `Fixes #<N>`: an implementation or tooling PR may only carry `Fixes #<N>` once the linked plan is `approved` with valid lifecycle evidence, and only if GitHub's own `closingIssuesReferences` for that PR agrees and no other open PR already closes the same issue. A maintenance PR may use `Fixes #<N>` only under the same approved-plan and closing checks; without that evidence it must use `Refs #<N>`.
 
 Pull requests labelled `fork-sync` skip this check. The Fork Sync Watchdog applies that label to its upstream sync PRs, which contain no plans but carry upstream's `package.json` without the fork's lifecycle scripts.
 
@@ -60,3 +60,15 @@ Plans are fork-only and are never promoted upstream.
 Changes limited to the lifecycle validator, its tests, its workflow, the planner workflow and compiled lock file, the related agents and documentation, and `package.json` use the focused tooling-maintenance path. A maintainer must apply the `fork-lifecycle-maintenance` label. The validator checks every changed path against an explicit allowlist; adding any implementation-agent, plugin, skill, or active issue-plan change takes the PR out of maintenance mode and restores the normal issue/approval gates. The workflow runs the lifecycle regression tests on every applicable PR and reruns when the maintenance label is added or removed.
 
 The planner may only ever write `issue-*.md` in this directory — the workflow's `allowed-files` policy enforces it, so this README is out of its reach. When rerunning, it reuses the existing filename and branch; if multiple plan files match an issue, it stops rather than choosing one.
+
+## Fork tooling implementation PRs
+
+Issue-driven fork tooling changes use a separate `tooling` lifecycle mode; they are not lifecycle-maintenance PRs. The bounded tooling surface is `.github/workflows/fork-*` source/lock or plain YAML files, `eng/fork-*.mjs` scripts/tests, `.github/fork-only/README.md`, and exactly one matching issue plan. Workflow `.md` sources and `.lock.yml` files must change together, including renames. Unknown paths, mixed agent/tooling changes, and lifecycle-maintenance files bundled into a tooling PR fail closed.
+
+Tooling PRs follow the same approved-plan, owner-approval, native issue-closing, and single-closer rules as agent implementation PRs. The `.github/fork-only/plans/README.md` remains on the maintenance allowlist and is not part of the tooling implementation path.
+
+## Issue and pull request category labels
+
+The Fork Issue Planner assigns exactly one category to each in-scope issue and its planning PR: `fork-workflow` for fork workflow/tooling/lifecycle work, or `o2p-plugin-enhancements` for custom-agent/plugin/skill work. The author or maintainer of each later implementation or maintenance PR applies the matching category, which the lifecycle check enforces against the issue label. When re-planning, the planner removes the opposite category while preserving unrelated labels. Out-of-scope plans remain uncategorized; mixed-scope requests must be split before planning.
+
+These are category labels, not lifecycle controls. `fork-lifecycle-maintenance` remains a maintainer-applied label for the explicit maintenance allowlist, and `fork-sync` is applied by the watchdog to skip lifecycle validation on upstream sync PRs. `fork-automation` marks automation-generated items and is not a category or approval bypass. See the label table in `.github/fork-only/README.md`.
