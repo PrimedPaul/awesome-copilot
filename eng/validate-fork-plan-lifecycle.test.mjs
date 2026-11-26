@@ -20,6 +20,7 @@ import {
   validateCategoryLabels,
   categoryForPlanScope,
   buildCheckRunRequest,
+  runGhJson,
   shouldSkipLifecycleCheck,
   issueNumberFromEvent,
 } from "./validate-fork-plan-lifecycle.mjs";
@@ -140,6 +141,15 @@ test("classifyChangedPaths rejects multiple plan files for one issue", () => {
   );
   assert.equal(result.mode, "planning");
   assert.ok(result.errors.some((error) => /multiple plan files for issue #66/.test(error)));
+});
+
+test("classifyChangedPaths counts repeated plan paths only once", () => {
+  const plan = ".github/fork-only/plans/issue-66-update-agent.md";
+  for (const changedFiles of [[plan], [plan, "eng/fork-example.mjs"]]) {
+    const result = classifyChangedPaths(changedFiles, 66, [plan, plan.replace(/\//g, "\\")]);
+    assert.deepEqual(result.errors, []);
+    assert.equal(result.planFile, plan);
+  }
 });
 
 test("classifyChangedPaths detects an implementation PR", () => {
@@ -438,11 +448,12 @@ test("check-run requests target each linked PR head and update existing runs saf
     completedAt: "2025-01-01T00:00:00.000Z",
   });
   assert.equal(first.method, "POST");
-  assert.equal(first.endpoint, "repos/owner/repo/commits/sha-12/check-runs");
+  assert.equal(first.endpoint, "repos/owner/repo/check-runs");
   assert.equal(first.payload.head_sha, "sha-12");
   assert.equal(first.payload.conclusion, "success");
   assert.equal(first.payload.completed_at, "2025-01-01T00:00:00.000Z");
-  assert.equal(second.endpoint, "repos/owner/repo/commits/sha-13/check-runs");
+  assert.equal(second.endpoint, "repos/owner/repo/check-runs");
+  assert.equal(second.payload.head_sha, "sha-13");
   assert.equal(second.payload.conclusion, "failure");
   assert.match(second.payload.output.summary, /bad labels/);
 
@@ -455,8 +466,22 @@ test("check-run requests target each linked PR head and update existing runs saf
     completedAt: "2025-01-01T00:00:00.000Z",
   });
   assert.equal(update.method, "PATCH");
-  assert.equal(update.endpoint, "repos/owner/repo/commits/sha-12/check-runs/99");
+  assert.equal(update.endpoint, "repos/owner/repo/check-runs/99");
   assert.equal("head_sha" in update.payload, false);
+});
+
+test("GitHub API reads remain GET when query fields are present", () => {
+  for (const args of [
+    ["repos/owner/repo/contents/plan.md", "-f", "ref=sha"],
+    ["repos/owner/repo/commits/sha/check-runs", "--paginate", "--slurp", "-F", "per_page=100"],
+  ]) {
+    const output = runGhJson(args, (command, actualArgs) => {
+      assert.equal(command, "gh");
+      assert.deepEqual(actualArgs, ["api", "--method", "GET", ...args]);
+      return '{"ok":true}';
+    });
+    assert.deepEqual(output, { ok: true });
+  }
 });
 
 // --- planHasOpenQuestions ---
@@ -700,6 +725,40 @@ test("validatePlanningPullRequestBinding requires the matching merged planning P
       files: [],
     },
   }).length >= 3);
+});
+
+test("an open planning PR may validate its own approval, but cannot approve other PRs", () => {
+  const lifecycle = {
+    approval: { status: "approved", evidence: "https://github.com/owner/repo/pull/12#issuecomment-99" },
+  };
+  const params = {
+    lifecycle,
+    issueNumber: 66,
+    planFile: ".github/fork-only/plans/issue-66-sample.md",
+    planningPullRequest: {
+      number: 12,
+      baseRefName: "main",
+      mergedAt: null,
+      body: "Refs #66",
+      files: [".github/fork-only/plans/issue-66-sample.md"],
+    },
+  };
+  assert.deepEqual(validatePlanningPullRequestBinding({ ...params, mode: "planning", pullRequestNumber: 12 }), []);
+  for (const [mode, pullRequestNumber] of [
+    ["planning", 13],
+    ["implementation", 12],
+    ["tooling", 13],
+    ["maintenance", 13],
+  ]) {
+    assert.ok(validatePlanningPullRequestBinding({ ...params, mode, pullRequestNumber })
+      .some((error) => /must be merged/.test(error)));
+  }
+  assert.ok(validatePlanningPullRequestBinding({
+    ...params,
+    mode: "planning",
+    pullRequestNumber: 12,
+    planningPullRequest: { ...params.planningPullRequest, body: "Refs #67" },
+  }).some((error) => /Refs #66/.test(error)));
 });
 
 // --- validateClosingArmed ---

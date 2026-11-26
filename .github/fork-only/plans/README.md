@@ -41,7 +41,7 @@ npm run fork:plan-hash -- .github/fork-only/plans/issue-<N>-<short-slug>.md
 
 The orchestrator records the printed `sha256:<hex>` value in `lifecycle.planHash`; it is not part of the approval comment. It pins approval to the plan body shown for approval: if the plan changes while approval is pending or afterward, the hash no longer matches and the check fails until you re-review and re-approve.
 
-Your approval itself must be posted as a comment on the **planning PR** (not just an in-session confirmation), because that is the durable, attributable record the CI check can verify. The lifecycle check confirms the evidence URL identifies that issue's merged planning PR, which targets `main` and contains the matching plan file. The entire trimmed comment body is:
+Your approval itself must be posted as a comment on the **planning PR** (not just an in-session confirmation), because that is the durable, attributable record the CI check can verify. The lifecycle check confirms the evidence URL identifies that issue's planning PR, which targets `main` and contains the matching plan file. An approved planning-only PR can validate itself before merging; a separate implementation PR requires the planning PR to be merged. The entire trimmed comment body is:
 
 ```text
 Approve plan

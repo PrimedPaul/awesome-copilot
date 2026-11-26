@@ -198,7 +198,7 @@ function issueNumberFromEvent(eventName, event) {
 function classifyChangedPaths(changedFiles, issueNumber, planFiles = changedFiles) {
   const errors = [];
   const normalized = changedFiles.map((f) => f.replace(/\\/g, "/"));
-  const normalizedPlanFiles = planFiles.map((f) => f.replace(/\\/g, "/"));
+  const normalizedPlanFiles = [...new Set(planFiles.map((f) => f.replace(/\\/g, "/")))];
 
   const issuePlanPattern = issueNumber === null
     ? /^\.github\/fork-only\/plans\/issue-\d+-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/
@@ -505,6 +505,8 @@ function validatePlanningPullRequestBinding({
   issueNumber,
   planFile,
   planningPullRequest,
+  mode,
+  pullRequestNumber,
 }) {
   const errors = [];
   const approvalUrl = lifecycle?.approval?.evidence;
@@ -525,7 +527,10 @@ function validatePlanningPullRequestBinding({
   if (planningPullRequest?.baseRefName !== "main") {
     errors.push("The planning PR linked by lifecycle.approval.evidence must target main.");
   }
-  if (!planningPullRequest?.mergedAt) {
+  const validatesOwnPlanningPr = mode === "planning" &&
+    Number.isInteger(pullRequestNumber) &&
+    pullRequestNumber === planningPullRequest?.number;
+  if (!planningPullRequest?.mergedAt && !validatesOwnPlanningPr) {
     errors.push("The planning PR linked by lifecycle.approval.evidence must be merged before implementation.");
   }
   const { keyword, issue: linkedIssue, errors: linkErrors } = extractIssueLink(planningPullRequest?.body || "");
@@ -683,8 +688,8 @@ async function main() {
   reportAndExit(resultErrors);
 }
 
-function runGhJson(args) {
-  const output = execFileSync("gh", ["api", ...args], { encoding: "utf8" });
+function runGhJson(args, execute = execFileSync) {
+  const output = execute("gh", ["api", "--method", "GET", ...args], { encoding: "utf8" });
   return JSON.parse(output);
 }
 
@@ -859,6 +864,8 @@ async function validatePullRequestLifecycle({ owner, repo, pullRequest }) {
         issueNumber,
         planFile,
         planningPullRequest: planningData,
+        mode,
+        pullRequestNumber: pullRequest.number,
       }));
       const comments = fetchComments({ owner, repo, prNumber: approvalPrNumber });
       errors.push(...validateApprovalEvidence({ lifecycle, issueNumber, comments, ownerLogin: owner }));
@@ -985,7 +992,7 @@ function buildCheckRunRequest({ owner, repo, pullRequest, existing, errors, comp
       text: `Validated changed paths and issue/category rules for commit ${pullRequest.headRefOid}.`,
     },
   };
-  const collectionEndpoint = `repos/${owner}/${repo}/commits/${pullRequest.headRefOid}/check-runs`;
+  const collectionEndpoint = `repos/${owner}/${repo}/check-runs`;
   if (existing) {
     delete payload.head_sha;
     return {
@@ -1075,4 +1082,5 @@ export {
   validatePlanningPullRequestBinding,
   validateClosingArmed,
   buildCheckRunRequest,
+  runGhJson,
 };
