@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   classifyChangedPaths,
+  entriesFromPullRequestFiles,
+  changedPathsFromEntries,
+  validateWorkflowSourceLockPairs,
+  pullRequestsForIssue,
+  isRelevantCategoryLabel,
   computePlanHash,
   extractIssueLink,
   parseApprovalComment,
@@ -9,8 +14,18 @@ import {
   planHasOpenQuestions,
   validateMaintenanceLabel,
   validateApprovalEvidence,
+  validatePlanningPullRequestBinding,
+  validateApprovedPlanSnapshot,
   validateClosingArmed,
   validatePlanDocument,
+  validateCategoryLabels,
+  categoryForPlanScope,
+  buildCheckRunRequest,
+  runGhJson,
+  processPullRequests,
+  validateToolingPlanStatus,
+  shouldSkipLifecycleCheck,
+  issueNumberFromEvent,
 } from "./validate-fork-plan-lifecycle.mjs";
 
 const APPROVED_HEADER = `---
@@ -131,12 +146,83 @@ test("classifyChangedPaths rejects multiple plan files for one issue", () => {
   assert.ok(result.errors.some((error) => /multiple plan files for issue #66/.test(error)));
 });
 
+test("classifyChangedPaths counts repeated plan paths only once", () => {
+  const plan = ".github/fork-only/plans/issue-66-update-agent.md";
+  for (const changedFiles of [[plan], [plan, "eng/fork-example.mjs"]]) {
+    const result = classifyChangedPaths(changedFiles, 66, [plan, plan.replace(/\//g, "\\")]);
+    assert.deepEqual(result.errors, []);
+    assert.equal(result.planFile, plan);
+  }
+});
+
 test("classifyChangedPaths detects an implementation PR", () => {
   const result = classifyChangedPaths(
     ["agents/oracle-to-postgres-migration-expert.agent.md", ".github/fork-only/plans/issue-66-update-agent.md"],
     66
   );
   assert.equal(result.mode, "implementation");
+  assert.deepEqual(result.errors, []);
+});
+
+test("classifyChangedPaths detects a tooling implementation PR with a matching plan", () => {
+  const plan = ".github/fork-only/plans/issue-132-upstream-bundler.md";
+  const result = classifyChangedPaths(
+    [
+      plan,
+      ".github/workflows/fork-bundle-upstream-pr.yml",
+      "eng/fork-bundle-upstream-pr.test.mjs",
+      ".github/fork-only/README.md",
+    ],
+    132
+  );
+  assert.equal(result.mode, "tooling");
+  assert.equal(result.planFile, plan);
+  assert.deepEqual(result.errors, []);
+});
+
+test("classifyChangedPaths rejects unsupported paths bundled with tooling", () => {
+  const result = classifyChangedPaths(
+    [
+      ".github/fork-only/plans/issue-132-upstream-bundler.md",
+      ".github/workflows/fork-bundle-upstream-pr.yml",
+      "docs/other.md",
+    ],
+    132
+  );
+  assert.equal(result.mode, "tooling");
+  assert.ok(result.errors.some((error) => /approved tooling paths/.test(error)));
+});
+
+test("classifyChangedPaths keeps lifecycle-maintenance files out of tooling PRs", () => {
+  const result = classifyChangedPaths(
+    [
+      ".github/fork-only/plans/issue-132-upstream-bundler.md",
+      ".github/workflows/fork-bundle-upstream-pr.yml",
+      ".github/workflows/fork-plan-lifecycle-check.yml",
+      ".github/fork-only/README.md",
+    ],
+    132
+  );
+  assert.equal(result.mode, "tooling");
+  assert.ok(result.errors.some((error) => /must not bundle lifecycle-maintenance paths/.test(error)));
+});
+
+test("classifyChangedPaths rejects implementation changes mixed with tooling", () => {
+  const result = classifyChangedPaths(
+    [
+      "agents/oracle-to-postgres-migration-expert.agent.md",
+      ".github/workflows/fork-bundle-upstream-pr.yml",
+    ],
+    132,
+    [".github/fork-only/plans/issue-132-upstream-bundler.md"]
+  );
+  assert.equal(result.mode, "implementation");
+  assert.ok(result.errors.some((error) => /must not bundle lifecycle tooling/.test(error)));
+});
+
+test("classifyChangedPaths leaves a README-only change in maintenance mode", () => {
+  const result = classifyChangedPaths([".github/fork-only/README.md"], 132);
+  assert.equal(result.mode, "maintenance");
   assert.deepEqual(result.errors, []);
 });
 
@@ -147,6 +233,51 @@ test("classifyChangedPaths rejects fork-tooling leaks on an implementation PR", 
   );
   assert.equal(result.mode, "implementation");
   assert.ok(result.errors.some((error) => /may only touch the matching plan file/.test(error)));
+});
+
+test("pull request file entries retain both paths for renamed files", () => {
+  const entries = entriesFromPullRequestFiles([
+    {
+      status: "renamed",
+      previous_filename: ".github/workflows/fork-old.md",
+      filename: ".github/workflows/fork-new.md",
+    },
+    { status: "modified", filename: "README.md" },
+  ]);
+  assert.deepEqual(entries, [
+    { status: "R100", oldPath: ".github/workflows/fork-old.md", newPath: ".github/workflows/fork-new.md" },
+    { status: "modified", path: "README.md" },
+  ]);
+  assert.deepEqual(changedPathsFromEntries(entries), [
+    ".github/workflows/fork-old.md",
+    ".github/workflows/fork-new.md",
+    "README.md",
+  ]);
+});
+
+test("workflow source and lock pair validation requires both changed paths", () => {
+  assert.equal(
+    validateWorkflowSourceLockPairs([
+      { status: "M", path: ".github/workflows/fork-agent.md" },
+      { status: "M", path: ".github/workflows/fork-agent.lock.yml" },
+    ]).length,
+    0
+  );
+  assert.equal(
+    validateWorkflowSourceLockPairs([
+      { status: "R100", oldPath: ".github/workflows/fork-old.md", newPath: ".github/workflows/fork-new.md" },
+      { status: "R100", oldPath: ".github/workflows/fork-old.lock.yml", newPath: ".github/workflows/fork-new.lock.yml" },
+    ]).length,
+    0
+  );
+  assert.equal(
+    validateWorkflowSourceLockPairs([{ status: "M", path: ".github/workflows/fork-agent.md" }]).length,
+    1
+  );
+  assert.equal(
+    validateWorkflowSourceLockPairs([{ status: "M", path: ".github/workflows/fork-agent.lock.yml" }]).length,
+    1
+  );
 });
 
 test("classifyChangedPaths flags unrelated changes", () => {
@@ -211,6 +342,183 @@ test("validateMaintenanceLabel requires the dedicated label only in maintenance 
     []
   );
   assert.deepEqual(validateMaintenanceLabel({ mode: "implementation", labels: [] }), []);
+});
+
+test("categoryForPlanScope maps only supported in-scope categories", () => {
+  assert.equal(categoryForPlanScope("fork-tooling"), "fork-workflow");
+  assert.equal(categoryForPlanScope("agent"), "o2p-plugin-enhancements");
+  assert.equal(categoryForPlanScope("out-of-scope"), null);
+});
+
+test("validateCategoryLabels requires exactly one matching issue and PR category", () => {
+  assert.deepEqual(
+    validateCategoryLabels({
+      mode: "planning",
+      scope: "fork-tooling",
+      issueLabels: ["fork-workflow"],
+      pullRequestLabels: ["fork-workflow", "fork-automation"],
+    }),
+    []
+  );
+  assert.deepEqual(
+    validateCategoryLabels({
+      mode: "tooling",
+      scope: "fork-tooling",
+      issueLabels: ["fork-workflow"],
+      pullRequestLabels: ["fork-workflow", "fork-lifecycle-maintenance"],
+    }),
+    []
+  );
+  assert.deepEqual(
+    validateCategoryLabels({
+      mode: "maintenance",
+      issueLabels: ["fork-workflow"],
+      pullRequestLabels: ["fork-workflow", "fork-lifecycle-maintenance"],
+    }),
+    []
+  );
+  assert.ok(
+    validateCategoryLabels({
+      mode: "implementation",
+      scope: "agent",
+      issueLabels: ["fork-workflow", "o2p-plugin-enhancements"],
+      pullRequestLabels: ["o2p-plugin-enhancements"],
+    }).some((error) => /Issue must have exactly/.test(error))
+  );
+  assert.ok(
+    validateCategoryLabels({
+      mode: "implementation",
+      scope: "agent",
+      issueLabels: ["o2p-plugin-enhancements"],
+      pullRequestLabels: ["fork-workflow"],
+    }).some((error) => /Pull request must have exactly/.test(error))
+  );
+});
+
+test("out-of-scope plans require no fork category labels", () => {
+  assert.deepEqual(
+    validateCategoryLabels({
+      mode: "planning",
+      scope: "out-of-scope",
+      issueLabels: ["fork-automation"],
+      pullRequestLabels: ["fork-automation"],
+    }),
+    []
+  );
+  assert.ok(
+    validateCategoryLabels({
+      mode: "planning",
+      scope: "out-of-scope",
+      issueLabels: ["fork-workflow"],
+      pullRequestLabels: [],
+    }).some((error) => /must not carry fork category/.test(error))
+  );
+});
+
+test("issue-link selection and planner label revalidation are narrowly scoped", () => {
+  const linked = pullRequestsForIssue([
+    { number: 1, body: "Refs #66" },
+    { number: 2, body: "Fixes #67" },
+    { number: 3, body: "Refs #66 and Fixes #68" },
+    { number: 4, body: "Refs #66\nFixes #66" },
+  ], 66);
+  assert.deepEqual(linked.map((pr) => pr.number), [1]);
+  assert.equal(isRelevantCategoryLabel("fork-workflow"), true);
+  assert.equal(isRelevantCategoryLabel("o2p-plugin-enhancements"), true);
+  assert.equal(isRelevantCategoryLabel("fork-workflow"), true);
+  assert.equal(isRelevantCategoryLabel("fork-lifecycle-maintenance"), false);
+  assert.equal(isRelevantCategoryLabel("documentation"), false);
+  assert.equal(issueNumberFromEvent("issues", { issue: { number: 66 } }), 66);
+  assert.equal(issueNumberFromEvent("workflow_dispatch", { inputs: { issue_number: "67" } }), 67);
+  assert.equal(shouldSkipLifecycleCheck("pull_request", ["fork-sync"]), true);
+  assert.equal(shouldSkipLifecycleCheck("pull_request", ["fork-workflow"]), false);
+  assert.equal(shouldSkipLifecycleCheck("issues", ["fork-sync"]), false);
+});
+
+test("check-run requests target each linked PR head and update existing runs safely", () => {
+  const first = buildCheckRunRequest({
+    owner: "owner",
+    repo: "repo",
+    pullRequest: { number: 12, headRefOid: "sha-12", url: "https://github.com/owner/repo/pull/12" },
+    errors: [],
+    completedAt: "2025-01-01T00:00:00.000Z",
+  });
+  const second = buildCheckRunRequest({
+    owner: "owner",
+    repo: "repo",
+    pullRequest: { number: 13, headRefOid: "sha-13", url: "https://github.com/owner/repo/pull/13" },
+    errors: ["bad labels"],
+    completedAt: "2025-01-01T00:00:00.000Z",
+  });
+  assert.equal(first.method, "POST");
+  assert.equal(first.endpoint, "repos/owner/repo/check-runs");
+  assert.equal(first.payload.head_sha, "sha-12");
+  assert.equal(first.payload.conclusion, "success");
+  assert.equal(first.payload.completed_at, "2025-01-01T00:00:00.000Z");
+  assert.equal(second.endpoint, "repos/owner/repo/check-runs");
+  assert.equal(second.payload.head_sha, "sha-13");
+  assert.equal(second.payload.conclusion, "failure");
+  assert.match(second.payload.output.summary, /bad labels/);
+
+  const update = buildCheckRunRequest({
+    owner: "owner",
+    repo: "repo",
+    pullRequest: { number: 12, headRefOid: "sha-12", url: "https://github.com/owner/repo/pull/12" },
+    existing: { id: 99 },
+    errors: [],
+    completedAt: "2025-01-01T00:00:00.000Z",
+  });
+  assert.equal(update.method, "PATCH");
+  assert.equal(update.endpoint, "repos/owner/repo/check-runs/99");
+  assert.equal("head_sha" in update.payload, false);
+});
+
+test("GitHub API reads remain GET when query fields are present", () => {
+  for (const args of [
+    ["repos/owner/repo/contents/plan.md", "-f", "ref=sha"],
+    ["repos/owner/repo/commits/sha/check-runs", "--paginate", "--slurp", "-F", "per_page=100"],
+  ]) {
+    const output = runGhJson(args, (command, actualArgs) => {
+      assert.equal(command, "gh");
+      assert.deepEqual(actualArgs, ["api", "--method", "GET", ...args]);
+      return '{"ok":true}';
+    });
+    assert.deepEqual(output, { ok: true });
+  }
+});
+
+test("tooling requires an approved plan even with Refs, unlike maintenance", () => {
+  assert.match(validateToolingPlanStatus("tooling", "draft")[0], /approved plan/);
+  assert.deepEqual(validateToolingPlanStatus("tooling", "approved"), []);
+  assert.deepEqual(validateToolingPlanStatus("maintenance", "draft"), []);
+});
+
+test("revalidation publishes read failures and continues after publishing failures", async () => {
+  const checks = [];
+  const comments = [];
+  const result = await processPullRequests({
+    owner: "owner",
+    repo: "repo",
+    pullRequests: [{ number: 1 }, { number: 2 }, { number: 3 }],
+    validate: async ({ pullRequest }) => {
+      if (pullRequest.number === 1) throw new Error("issue labels unavailable");
+      return { errors: [] };
+    },
+    publishCheck: async ({ pullRequest, errors }) => {
+      checks.push({ number: pullRequest.number, errors });
+      if (pullRequest.number === 2) throw new Error("check lookup failed");
+      return [];
+    },
+    publishComment: async ({ pullRequest, errors }) => {
+      comments.push({ number: pullRequest.number, errors });
+      return [];
+    },
+  });
+  assert.match(checks[0].errors[0], /issue labels unavailable/);
+  assert.deepEqual(checks.map(({ number }) => number), [1, 2, 3]);
+  assert.deepEqual(comments.map(({ number }) => number), [1, 2, 3]);
+  assert.ok(result.some((error) => /PR #1:.*issue labels unavailable/.test(error)));
+  assert.ok(result.some((error) => /PR #2: check lookup failed/.test(error)));
 });
 
 // --- planHasOpenQuestions ---
@@ -423,6 +731,111 @@ test("validateApprovalEvidence rejects approval when the recorded approver is no
   assert.ok(errors.some((error) => /approver must match the repository owner/.test(error)));
 });
 
+test("validatePlanningPullRequestBinding requires the matching merged planning PR", () => {
+  const lifecycle = {
+    approval: {
+      status: "approved",
+      evidence: "https://github.com/owner/repo/pull/12#issuecomment-99",
+    },
+  };
+  assert.deepEqual(validatePlanningPullRequestBinding({
+    lifecycle,
+    issueNumber: 66,
+    planFile: ".github/fork-only/plans/issue-66-sample.md",
+    planningPullRequest: {
+      number: 12,
+      baseRefName: "main",
+      mergedAt: "2026-01-01T00:00:00Z",
+      body: "Plan\n\nRefs #66\n",
+      files: [".github/fork-only/plans/issue-66-sample.md"],
+    },
+  }), []);
+  assert.ok(validatePlanningPullRequestBinding({
+    lifecycle,
+    issueNumber: 66,
+    planFile: ".github/fork-only/plans/issue-66-sample.md",
+    planningPullRequest: {
+      number: 12,
+      baseRefName: "main",
+      mergedAt: null,
+      body: "Plan\n\nRefs #67\n",
+      files: [],
+    },
+  }).length >= 3);
+});
+
+test("an open planning PR may validate its own approval, but cannot approve other PRs", () => {
+  const lifecycle = {
+    approval: { status: "approved", evidence: "https://github.com/owner/repo/pull/12#issuecomment-99" },
+  };
+  const params = {
+    lifecycle,
+    issueNumber: 66,
+    planFile: ".github/fork-only/plans/issue-66-sample.md",
+    planningPullRequest: {
+      number: 12,
+      baseRefName: "main",
+      mergedAt: null,
+      body: "Refs #66",
+      files: [".github/fork-only/plans/issue-66-sample.md"],
+    },
+  };
+  assert.deepEqual(validatePlanningPullRequestBinding({ ...params, mode: "planning", pullRequestNumber: 12 }), []);
+  for (const [mode, pullRequestNumber] of [
+    ["planning", 13],
+    ["implementation", 12],
+    ["tooling", 13],
+    ["maintenance", 13],
+  ]) {
+    assert.ok(validatePlanningPullRequestBinding({ ...params, mode, pullRequestNumber })
+      .some((error) => /must be merged/.test(error)));
+  }
+  assert.ok(validatePlanningPullRequestBinding({
+    ...params,
+    mode: "planning",
+    pullRequestNumber: 12,
+    planningPullRequest: { ...params.planningPullRequest, body: "Refs #67" },
+  }).some((error) => /Refs #66/.test(error)));
+});
+
+test("approved plan must match the immutable planning-PR merge snapshot", () => {
+  const content = `---
+issue: 66
+scope: fork-tooling
+status: approved
+lifecycle:
+  approval:
+    evidence: https://github.com/owner/repo/pull/12#issuecomment-99
+---
+## Plan
+Approved content
+`;
+  assert.deepEqual(validateApprovedPlanSnapshot({
+    currentContent: content.replace(/\n/g, "\r\n"),
+    approvedContent: content,
+    planFile: ".github/fork-only/plans/issue-66-sample.md",
+    mergeCommitSha: "abc123",
+  }), []);
+  for (const changedContent of [
+    content.replace("Approved content", "Changed content"),
+    content.replace("scope: fork-tooling", "scope: agent"),
+    content.replace("#issuecomment-99", "#issuecomment-100"),
+  ]) {
+    assert.ok(validateApprovedPlanSnapshot({
+      currentContent: changedContent,
+      approvedContent: content,
+      planFile: ".github/fork-only/plans/issue-66-sample.md",
+      mergeCommitSha: "abc123",
+    }).some((error) => /differs from the version approved/.test(error)));
+  }
+  assert.ok(validateApprovedPlanSnapshot({
+    currentContent: content,
+    approvedContent: content,
+    planFile: ".github/fork-only/plans/issue-66-sample.md",
+    mergeCommitSha: null,
+  }).some((error) => /immutable merge commit/.test(error)));
+});
+
 // --- validateClosingArmed ---
 
 test("validateClosingArmed rejects Fixes on a planning-only PR", () => {
@@ -483,6 +896,39 @@ test("validateClosingArmed accepts a fully valid Fixes on an approved implementa
     otherOpenClosingPrNumbers: [],
   });
   assert.deepEqual(errors, []);
+});
+
+test("validateClosingArmed applies the approved-plan checks to maintenance Fixes", () => {
+  const errors = validateClosingArmed({
+    mode: "maintenance",
+    keyword: "Fixes",
+    planStatus: "approved",
+    closingIssuesReferences: [66],
+    issueNumber: 66,
+    otherOpenClosingPrNumbers: [],
+  });
+  assert.deepEqual(errors, []);
+  assert.ok(validateClosingArmed({
+    mode: "maintenance",
+    keyword: "Fixes",
+    planStatus: "draft",
+    closingIssuesReferences: [66],
+    issueNumber: 66,
+    otherOpenClosingPrNumbers: [],
+  }).some((error) => /only be used once/.test(error)));
+});
+
+test("validateClosingArmed fails closed if closing references could not be verified", () => {
+  const errors = validateClosingArmed({
+    mode: "tooling",
+    keyword: "Fixes",
+    planStatus: "approved",
+    closingIssuesReferences: null,
+    issueNumber: 66,
+    otherOpenClosingPrNumbers: null,
+  });
+  assert.ok(errors.some((error) => /Could not verify whether GitHub/.test(error)));
+  assert.ok(errors.some((error) => /Could not verify whether another open PR/.test(error)));
 });
 
 test("validateClosingArmed accepts Refs on an implementation PR regardless of plan status", () => {
