@@ -15,6 +15,7 @@ import {
   validateMaintenanceLabel,
   validateApprovalEvidence,
   validatePlanningPullRequestBinding,
+  validateApprovedPlanSnapshot,
   validateClosingArmed,
   validatePlanDocument,
   validateCategoryLabels,
@@ -795,6 +796,44 @@ test("an open planning PR may validate its own approval, but cannot approve othe
     pullRequestNumber: 12,
     planningPullRequest: { ...params.planningPullRequest, body: "Refs #67" },
   }).some((error) => /Refs #66/.test(error)));
+});
+
+test("approved plan must match the immutable planning-PR merge snapshot", () => {
+  const content = `---
+issue: 66
+scope: fork-tooling
+status: approved
+lifecycle:
+  approval:
+    evidence: https://github.com/owner/repo/pull/12#issuecomment-99
+---
+## Plan
+Approved content
+`;
+  assert.deepEqual(validateApprovedPlanSnapshot({
+    currentContent: content.replace(/\n/g, "\r\n"),
+    approvedContent: content,
+    planFile: ".github/fork-only/plans/issue-66-sample.md",
+    mergeCommitSha: "abc123",
+  }), []);
+  for (const changedContent of [
+    content.replace("Approved content", "Changed content"),
+    content.replace("scope: fork-tooling", "scope: agent"),
+    content.replace("#issuecomment-99", "#issuecomment-100"),
+  ]) {
+    assert.ok(validateApprovedPlanSnapshot({
+      currentContent: changedContent,
+      approvedContent: content,
+      planFile: ".github/fork-only/plans/issue-66-sample.md",
+      mergeCommitSha: "abc123",
+    }).some((error) => /differs from the version approved/.test(error)));
+  }
+  assert.ok(validateApprovedPlanSnapshot({
+    currentContent: content,
+    approvedContent: content,
+    planFile: ".github/fork-only/plans/issue-66-sample.md",
+    mergeCommitSha: null,
+  }).some((error) => /immutable merge commit/.test(error)));
 });
 
 // --- validateClosingArmed ---

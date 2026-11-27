@@ -543,6 +543,25 @@ function validatePlanningPullRequestBinding({
   return errors;
 }
 
+function validateApprovedPlanSnapshot({ currentContent, approvedContent, planFile, mergeCommitSha }) {
+  if (!mergeCommitSha) {
+    return ["The merged planning PR has no immutable merge commit to verify its approved plan snapshot."];
+  }
+  if (typeof currentContent !== "string") {
+    return [`Could not read the current plan "${planFile}" from the pull request head.`];
+  }
+  if (typeof approvedContent !== "string") {
+    return [`Could not read the approved plan "${planFile}" from planning PR merge commit ${mergeCommitSha}.`];
+  }
+  if (currentContent.replace(/\r\n/g, "\n") !== approvedContent.replace(/\r\n/g, "\n")) {
+    return [
+      `Plan "${planFile}" differs from the version approved at planning PR merge commit ${mergeCommitSha}; ` +
+        "plan changes require a new planning PR and approval.",
+    ];
+  }
+  return [];
+}
+
 /**
  * Validate the rules around arming "Fixes #N" on lifecycle implementation PRs.
  * @param {object} params
@@ -718,7 +737,7 @@ function fetchPullRequest({ owner, repo, number }) {
   const output = execFileSync(
     "gh",
     ["pr", "view", String(number), "--repo", `${owner}/${repo}`, "--json",
-      "number,url,body,labels,baseRefName,baseRefOid,headRefName,headRefOid,closingIssuesReferences,mergedAt"],
+      "number,url,body,labels,baseRefName,baseRefOid,headRefName,headRefOid,closingIssuesReferences,mergedAt,mergeCommit"],
     { encoding: "utf8" }
   );
   return JSON.parse(output);
@@ -812,14 +831,16 @@ async function validatePullRequestLifecycle({ owner, repo, pullRequest }) {
   const planFile = changedPlanFile || matchingPlanFiles[0] || null;
   let frontmatter;
   let body;
+  let planContent;
   if (planFile) {
     try {
-      ({ frontmatter, body } = parsePlanContent(fetchFileAtRef({
+      planContent = fetchFileAtRef({
         owner,
         repo,
         filePath: planFile,
         ref: pullRequest.headRefOid,
-      })));
+      });
+      ({ frontmatter, body } = parsePlanContent(planContent));
     } catch (error) {
       errors.push(`Failed to read plan "${planFile}" from PR #${pullRequest.number}: ${error.message}`);
     }
@@ -869,6 +890,7 @@ async function validatePullRequestLifecycle({ owner, repo, pullRequest }) {
         number: planningPullRequest.number,
         baseRefName: planningPullRequest.baseRefName,
         mergedAt: planningPullRequest.mergedAt,
+        mergeCommitSha: planningPullRequest.mergeCommit?.oid,
         body: planningPullRequest.body,
         files: changedPathsFromEntries(planningFiles),
       };
@@ -880,6 +902,24 @@ async function validatePullRequestLifecycle({ owner, repo, pullRequest }) {
         mode,
         pullRequestNumber: pullRequest.number,
       }));
+      const validatesOwnPlanningPr = mode === "planning" &&
+        pullRequest.number === planningPullRequest.number;
+      if (!validatesOwnPlanningPr) {
+        const approvedContent = planningData.mergeCommitSha
+          ? fetchFileAtRef({
+            owner,
+            repo,
+            filePath: planFile,
+            ref: planningData.mergeCommitSha,
+          })
+          : null;
+        errors.push(...validateApprovedPlanSnapshot({
+          currentContent: planContent,
+          approvedContent,
+          planFile,
+          mergeCommitSha: planningData.mergeCommitSha,
+        }));
+      }
       const comments = fetchComments({ owner, repo, prNumber: approvalPrNumber });
       errors.push(...validateApprovalEvidence({ lifecycle, issueNumber, comments, ownerLogin: owner }));
     } catch (error) {
@@ -1093,6 +1133,7 @@ export {
   parseApprovalComment,
   validateApprovalEvidence,
   validatePlanningPullRequestBinding,
+  validateApprovedPlanSnapshot,
   validateClosingArmed,
   buildCheckRunRequest,
   runGhJson,
